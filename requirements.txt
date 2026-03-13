@@ -1,0 +1,14 @@
+# Core
+opencv-python
+mediapipe
+onnxruntime
+numpy
+faiss-cpu
+
+# Web
+flask
+flask-cors
+supabase
+
+# Optional (uncomment for GPU)
+# onnxruntime-gpu

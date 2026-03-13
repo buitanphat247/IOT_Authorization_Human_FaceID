@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+face_env/
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Models (large files)
+models/
+*.onnx
+*.task
+
+# Database local cache
+db/
+*.db
+*.sqlite3
+faiss_*.bin
+faiss_*.json
+
+# Recordings
+recordings/
+
+# Data
+data/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
+
+# InsightFace cache
+.insightface/
+
+# Gemini
+.gemini/

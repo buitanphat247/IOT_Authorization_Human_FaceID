@@ -1,0 +1,99 @@
+/* ===== CUSTOM STYLES (alongside Tailwind v3) ===== */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+/* Animated background gradient */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 10%, rgba(0, 212, 255, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(124, 58, 237, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 60% at 50% 50%, rgba(0, 212, 255, 0.04) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: #0f172a; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #00d4ff; }
+
+/* Glow animation */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 15px rgba(0, 212, 255, 0.25); }
+  50% { box-shadow: 0 0 30px rgba(0, 212, 255, 0.4), 0 0 60px rgba(124, 58, 237, 0.15); }
+}
+.animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
+
+/* Status blink */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.animate-blink { animation: blink 2s ease-in-out infinite; }
+
+/* Slide up */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up { animation: slideUp 0.4s ease; }
+
+/* Toast in/out */
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(40px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes toastOut {
+  to { opacity: 0; transform: translateX(40px); }
+}
+.toast-enter { animation: toastIn 0.4s ease; }
+.toast-exit  { animation: toastOut 0.3s ease forwards; }
+
+/* Thumb pop */
+@keyframes thumbPop {
+  0% { transform: scale(0.7); opacity: 0; }
+  60% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-thumb-pop { animation: thumbPop 0.35s ease; }
+
+/* Webcam mirror */
+video.mirror { transform: scaleX(-1); }
+
+/* Gradient text */
+.text-gradient {
+  background: linear-gradient(135deg, #00d4ff, #f0f4ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Glass effect */
+.glass {
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+}
+
+/* Stat card top border gradient */
+.stat-bar-1 { background: linear-gradient(90deg, #00d4ff, #00e5ff); }
+.stat-bar-2 { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
+.stat-bar-3 { background: linear-gradient(90deg, #10b981, #34d399); }
+.stat-bar-4 { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+
+/* Progress bar gradient */
+.progress-gradient {
+  background: linear-gradient(90deg, #00d4ff, #7c3aed);
+}
+
+/* Face oval guide */
+.face-oval {
+  border: 2px dashed rgba(0, 212, 255, 0.4);
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+.face-oval.detecting {
+  border-color: #10b981;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+}
