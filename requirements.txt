@@ -1,5 +1,5 @@
 # Core
-opencv-python
+opencv-python-headless
 mediapipe
 onnxruntime
 numpy
@@ -9,6 +9,7 @@ faiss-cpu
 flask
 flask-cors
 supabase
+gunicorn
 
 # Optional (uncomment for GPU)
 # onnxruntime-gpu
