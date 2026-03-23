@@ -87,13 +87,58 @@ video.mirror { transform: scaleX(-1); }
   background: linear-gradient(90deg, #00d4ff, #7c3aed);
 }
 
-/* Face oval guide */
-.face-oval {
-  border: 2px dashed rgba(0, 212, 255, 0.4);
+/* Face oval guide — enrollment (cutout overlay) */
+.enroll-oval-cutout {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 48%;
+  height: 68%;
   border-radius: 50%;
-  transition: all 0.3s ease;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  border: 3px solid rgba(100, 116, 139, 0.4);
+  transition: border-color 0.3s, box-shadow 0.3s;
+  z-index: 15;
 }
-.face-oval.detecting {
-  border-color: #10b981;
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+.enroll-oval-cutout.face-inside {
+  border-color: rgba(16, 185, 129, 0.8);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55), 0 0 30px rgba(16, 185, 129, 0.25);
+}
+.enroll-oval-cutout.face-outside {
+  border-color: rgba(239, 68, 68, 0.6);
+}
+@keyframes ovalPulse {
+  0%, 100% { border-color: rgba(16, 185, 129, 0.8); }
+  50% { border-color: rgba(0, 212, 255, 0.9); }
+}
+.enroll-oval-cutout.capturing {
+  animation: ovalPulse 1.5s ease-in-out infinite;
+}
+
+/* Corner brackets for face alignment */
+.face-bracket {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-color: rgba(0, 212, 255, 0.5);
+  transition: border-color 0.3s;
+  z-index: 16;
+}
+.face-bracket.tl { top: 18%; left: 28%; border-top: 2px solid; border-left: 2px solid; border-radius: 4px 0 0 0; }
+.face-bracket.tr { top: 18%; right: 28%; border-top: 2px solid; border-right: 2px solid; border-radius: 0 4px 0 0; }
+.face-bracket.bl { bottom: 18%; left: 28%; border-bottom: 2px solid; border-left: 2px solid; border-radius: 0 0 0 4px; }
+.face-bracket.br { bottom: 18%; right: 28%; border-bottom: 2px solid; border-right: 2px solid; border-radius: 0 0 4px 0; }
+
+
+/* Scan line animation (recognition overlay) */
+@keyframes scanLine {
+  0% { top: 0%; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+.animate-scan-line {
+  animation: scanLine 1.5s ease-in-out infinite;
+  position: absolute;
 }

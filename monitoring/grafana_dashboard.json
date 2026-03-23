@@ -1,0 +1,98 @@
+{
+  "annotations": { "list": [] },
+  "description": "Face Recognition System v5.2 - Performance Dashboard",
+  "editable": true,
+  "title": "Face Recognition System",
+  "uid": "face-recog-v52",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Recognition Results",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "face_recognitions_total", "legendFormat": "{{result}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "ONNX Inference Latency (ms)",
+      "type": "histogram",
+      "gridPos": { "h": 8, "w": 9, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "rate(onnx_inference_seconds_sum[5m]) / rate(onnx_inference_seconds_count[5m]) * 1000", "legendFormat": "Avg (ms)" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Active Users",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 15, "y": 0 },
+      "targets": [
+        { "expr": "active_users_total", "legendFormat": "Users" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "FAISS Vectors",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 0 },
+      "targets": [
+        { "expr": "faiss_vectors_total", "legendFormat": "Vectors" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Detections Rate (per min)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "rate(face_detections_total{status='found'}[1m]) * 60", "legendFormat": "Found" },
+        { "expr": "rate(face_detections_total{status='not_found'}[1m]) * 60", "legendFormat": "Not Found" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Quality Rejections",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "quality_gate_rejections_total", "legendFormat": "{{reason}}" }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Enrollments",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 15, "y": 4 },
+      "targets": [
+        { "expr": "face_enrollments_total{status='success'}", "legendFormat": "Success" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Full Pipeline Latency (p95)",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 4 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, rate(recognition_pipeline_seconds_bucket[5m])) * 1000", "legendFormat": "p95 (ms)" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 500 }
+            ]
+          },
+          "unit": "ms"
+        }
+      }
+    }
+  ],
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "version": 1
+}

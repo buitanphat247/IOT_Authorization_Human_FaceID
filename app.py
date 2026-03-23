@@ -1,6 +1,7 @@
 """
-FACE RECOGNITION SYSTEM - Flask Web Application
-Provides REST API + Web UI for managing face recognition with Supabase backend.
+FACE RECOGNITION SYSTEM v5.3 - Flask + SocketIO Web Application
+Provides REST API + SocketIO Realtime + Web UI for face recognition.
+Enhanced: SocketIO realtime recognition, Service Layer facade, Prometheus metrics.
 """
 
 import os
@@ -8,67 +9,90 @@ import sys
 import json
 import base64
 import time
+import threading
 import numpy as np
 import cv2
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit
 
 # Ensure project modules are importable
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+base_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, base_dir)
+sys.path.insert(0, os.path.join(base_dir, 'core'))
+
+# Load .env file (Supabase credentials, etc.)
+from dotenv import load_dotenv
+load_dotenv(os.path.join(base_dir, '.env'))
 
 from config import *
+from logger import get_logger
 from detector import FaceDetector
 from recognizer import FaceRecognizer
-from supabase_db import SupabaseDatabase
+from metrics import metrics, metrics_endpoint
+
+logger = get_logger("app")
 
 # ==================== CONFIG ====================
-# Supabase credentials - CHANGE THESE!
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://fpcrjmsekkhvjmpchfsf.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZwY3JqbXNla2todmptcGNoZnNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MjQ2NjAsImV4cCI6MjA4OTAwMDY2MH0.zMrGzyluVEeUT-veZEqoANj4RCKoUQQaSzRbpDxrCRs")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 # ==================== APP INIT ====================
 app = Flask(__name__, 
             template_folder="templates",
             static_folder="static")
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading",
+                    ping_timeout=30, ping_interval=10,
+                    max_http_buffer_size=5 * 1024 * 1024)  # 5MB max frame
 
-# Global objects (lazy init)
-_detector = None
-_recognizer = None
-_db = None
-
-
-def get_detector():
-    global _detector
-    if _detector is None:
-        _detector = FaceDetector(mode="image", num_faces=1)
-    return _detector
+# Global service (lazy init)
+_service = None
 
 
-def get_recognizer():
-    global _recognizer
-    if _recognizer is None:
-        _recognizer = FaceRecognizer()
-    return _recognizer
-
-
-def get_db():
-    global _db
-    if _db is None:
-        _db = SupabaseDatabase(SUPABASE_URL, SUPABASE_KEY)
-        _db.sync_from_supabase()
-    return _db
+def get_service():
+    """Get or create the FaceService singleton."""
+    global _service
+    if _service is None:
+        from service import FaceService
+        
+        detector = FaceDetector(mode="image", num_faces=1)
+        recognizer = FaceRecognizer()
+        
+        # Select database backend based on config
+        if DB_BACKEND == "pgvector":
+            from pgvector_db import PgVectorDatabase
+            db = PgVectorDatabase(SUPABASE_URL, SUPABASE_KEY)
+            logger.info("Using pgvector cloud-native backend")
+        else:
+            from supabase_db import SupabaseDatabase
+            db = SupabaseDatabase(SUPABASE_URL, SUPABASE_KEY)
+            db.sync_from_supabase()
+            logger.info("Using FAISS local backend")
+        
+        from anti_spoof import AntiSpoofer
+        
+        # Load Anti-Spoofing model (dùng path từ config)
+        spoofer = None
+        if os.path.exists(ANTI_SPOOF_PATH):
+            spoofer = AntiSpoofer(ANTI_SPOOF_PATH, threshold=ANTI_SPOOF_THRESHOLD)
+            logger.info(f"AntiSpoof loaded: {os.path.basename(ANTI_SPOOF_PATH)} (threshold={ANTI_SPOOF_THRESHOLD})")
+            
+        _service = FaceService(detector, recognizer, db, spoofer=spoofer)
+        
+        # Update Prometheus gauges
+        users = _service.get_users()
+        metrics.set_active_users(len(users))
+    
+    return _service
 
 
 # ==================== API: POSE CHECK (for enrollment) ====================
 
 @app.route("/api/check_pose", methods=["POST"])
 def api_check_pose():
-    """Quick head pose validation from a single frame.
-    Used by enrollment UI to gate captures by direction.
-    Reuses FaceInfo.check_pose() from detector.py (same as main.py).
-    """
+    """Quick head pose validation from a single frame."""
     try:
         data = request.get_json()
         b64_str = data.get("image", "")
@@ -84,24 +108,9 @@ def api_check_pose():
         if img is None:
             return jsonify({"valid": False, "reason": "invalid_image"})
 
-        detector = get_detector()
-        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        faces = detector.detect(rgb)
-
-        if len(faces) != 1:
-            return jsonify({"valid": False, "reason": "no_face" if len(faces) == 0 else "multiple_faces"})
-
-        face = faces[0]
-        h_off, v_ratio = face.head_pose()
-        pose_ok, pose_msg = face.check_pose(direction)
-
-        return jsonify({
-            "valid": bool(pose_ok),
-            "h_offset": round(float(h_off), 3),
-            "v_ratio": round(float(v_ratio), 3),
-            "direction": direction,
-            "message": pose_msg
-        })
+        svc = get_service()
+        result = svc.check_pose(img, direction)
+        return jsonify(result)
 
     except Exception as e:
         return jsonify({"valid": False, "reason": str(e)})
@@ -120,12 +129,11 @@ def index():
 def api_get_users():
     """Get all registered users."""
     try:
-        db = get_db()
-        users = db.get_users()
+        svc = get_service()
+        users = svc.get_users()
         return jsonify({
             "success": True,
-            "users": [{"name": n, "embeddings": c} for n, c in users.items()],
-            "total_vectors": db.total
+            "users": [{"name": n, "embeddings": c} for n, c in users.items()]
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -135,8 +143,8 @@ def api_get_users():
 def api_delete_user(name):
     """Delete a user and all their embeddings."""
     try:
-        db = get_db()
-        db.remove_user(name)
+        svc = get_service()
+        svc.delete_user(name)
         return jsonify({"success": True, "message": f"User '{name}' deleted"})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -146,12 +154,7 @@ def api_delete_user(name):
 
 @app.route("/api/enroll", methods=["POST"])
 def api_enroll():
-    """Enroll a user from uploaded images.
-    
-    Expects multipart form with:
-    - name: user name
-    - images: multiple image files
-    """
+    """Enroll a user from uploaded images."""
     try:
         name = request.form.get("name", "").strip()
         if not name:
@@ -161,63 +164,17 @@ def api_enroll():
         if not images or len(images) < 3:
             return jsonify({"success": False, "error": "At least 3 images required"}), 400
 
-        detector = get_detector()
-        recognizer = get_recognizer()
-        db = get_db()
-
-        embeddings = []
-        scores = []
-        processed = 0
-        skipped = 0
-
+        images_bgr = []
         for img_file in images:
-            # Read image
             img_bytes = img_file.read()
             nparr = np.frombuffer(img_bytes, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if img is None:
-                skipped += 1
-                continue
+            images_bgr.append(img)
 
-            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            faces = detector.detect(rgb)
+        svc = get_service()
+        result = svc.enroll_user(name, images_bgr)
 
-            if len(faces) != 1:
-                skipped += 1
-                continue
-
-            face = faces[0]
-            q_score, ok, reason = face.quality_check(img)
-
-            if not ok:
-                skipped += 1
-                continue
-
-            emb = recognizer.get_embedding(img, face.lm5)
-            if emb is not None:
-                embeddings.append(emb)
-                scores.append(q_score)
-                processed += 1
-
-        if len(embeddings) < 3:
-            return jsonify({
-                "success": False,
-                "error": f"Only {len(embeddings)} valid faces found. Need at least 3.",
-                "processed": processed,
-                "skipped": skipped
-            }), 400
-
-        # Clean outliers
-        cleaned = recognizer.clean_embeddings(embeddings, OUTLIER_STD)
-        db.add_user(name, cleaned, scores[:len(cleaned)])
-
-        return jsonify({
-            "success": True,
-            "message": f"User '{name}' enrolled successfully",
-            "total_embeddings": len(cleaned),
-            "processed": processed,
-            "skipped": skipped
-        })
+        return jsonify(result)
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -227,19 +184,10 @@ def api_enroll():
 
 @app.route("/api/enroll/base64", methods=["POST"])
 def api_enroll_base64():
-    """Enroll a user from base64-encoded images (webcam captures).
-    Uses PARALLEL image decoding + detection for speed.
-    
-    Expects JSON:
-    {
-        "name": "user_name",
-        "images": ["base64_data_1", "base64_data_2", ...]
-    }
-    """
+    """Enroll a user from base64-encoded images."""
     try:
         import concurrent.futures
 
-        t_start = time.time()
         data = request.get_json()
         name = data.get("name", "").strip()
         images_b64 = data.get("images", [])
@@ -250,89 +198,21 @@ def api_enroll_base64():
         if len(images_b64) < 3:
             return jsonify({"success": False, "error": "At least 3 images required"}), 400
 
-        detector = get_detector()
-        recognizer = get_recognizer()
-        db = get_db()
-
-        # Step 1: PARALLEL image decoding (I/O bound — benefits from threading)
         def decode_image(b64_str):
-            """Decode base64 to cv2 image."""
             if "," in b64_str:
                 b64_str = b64_str.split(",")[1]
             img_bytes = base64.b64decode(b64_str)
             nparr = np.frombuffer(img_bytes, np.uint8)
             return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        t1 = time.time()
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
             decoded_images = list(pool.map(decode_image, images_b64))
-        print(f"  [PERF] Decoded {len(decoded_images)} images in {time.time()-t1:.2f}s")
 
-        # Step 2: Sequential detection + embedding (model is not thread-safe)
-        t2 = time.time()
-        embeddings = []
-        scores = []
-        processed = 0
-        skipped = 0
+        svc = get_service()
+        result = svc.enroll_user(name, decoded_images)
+        result["captured"] = len(images_b64)
 
-        for img in decoded_images:
-            if img is None:
-                skipped += 1
-                continue
-
-            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            faces = detector.detect(rgb)
-
-            if len(faces) != 1:
-                skipped += 1
-                continue
-
-            face = faces[0]
-            q_score, ok, reason = face.quality_check(img)
-
-            if not ok:
-                skipped += 1
-                continue
-
-            emb = recognizer.get_embedding(img, face.lm5)
-            if emb is not None:
-                embeddings.append(emb)
-                scores.append(q_score)
-                processed += 1
-
-        print(f"  [PERF] Processed {processed} faces in {time.time()-t2:.2f}s (skipped: {skipped})")
-
-        if len(embeddings) < 3:
-            return jsonify({
-                "success": False,
-                "error": f"Only {len(embeddings)} valid faces found. Need at least 3.",
-                "processed": processed,
-                "skipped": skipped
-            }), 400
-
-        # Step 3: Select top-K best embeddings by quality + remove outliers
-        t3 = time.time()
-        from config import ENROLL_KEEP_TOP
-        final_embs, final_scores = recognizer.select_best_embeddings(
-            embeddings, scores, keep_top=ENROLL_KEEP_TOP
-        )
-        db.add_user(name, final_embs, final_scores)
-        print(f"  [PERF] Upload to Supabase in {time.time()-t3:.2f}s")
-        print(f"  [ENROLL] Pipeline: {len(images_b64)} captured → {processed} valid → {len(final_embs)} saved (top-{ENROLL_KEEP_TOP})")
-
-        total_time = time.time() - t_start
-        print(f"  [PERF] Total enrollment: {total_time:.2f}s")
-
-        return jsonify({
-            "success": True,
-            "message": f"User '{name}' enrolled successfully",
-            "total_embeddings": len(final_embs),
-            "captured": len(images_b64),
-            "processed": processed,
-            "skipped": skipped,
-            "quality_range": f"{min(final_scores):.3f} ~ {max(final_scores):.3f}" if final_scores else "N/A",
-            "time_seconds": round(total_time, 2)
-        })
+        return jsonify(result)
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -342,12 +222,8 @@ def api_enroll_base64():
 
 @app.route("/api/recognize", methods=["POST"])
 def api_recognize_single():
-    """Recognize from a single image (backward compatible)."""
+    """Recognize from a single image."""
     try:
-        detector = get_detector()
-        recognizer = get_recognizer()
-        db = get_db()
-        
         img = None
 
         if "image" in request.files:
@@ -368,44 +244,10 @@ def api_recognize_single():
         if img is None:
             return jsonify({"success": False, "error": "No valid image provided"}), 400
 
-        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        faces = detector.detect(rgb)
+        svc = get_service()
+        result = svc.recognize_single(img)
 
-        results = []
-        for face in faces:
-            q_score, ok, reason = face.quality_check(img)
-            if not ok:
-                results.append({
-                    "name": "Unknown",
-                    "score": 0,
-                    "quality": reason,
-                    "bbox": [int(x) for x in face.bbox]
-                })
-                continue
-
-            emb = recognizer.get_embedding(img, face.lm5)
-            if emb is not None:
-                name, score = db.match(emb)
-                score = float(score)
-                accepted = bool(score >= THRESHOLD)
-
-                result = {
-                    "name": name if accepted else "Unknown",
-                    "score": round(score, 4),
-                    "accepted": accepted,
-                    "quality_score": round(float(q_score), 4),
-                    "bbox": [int(x) for x in face.bbox]
-                }
-                results.append(result)
-
-                if accepted:
-                    db.log_attendance(name, score)
-
-        return jsonify({
-            "success": True,
-            "faces_detected": len(faces),
-            "results": results
-        })
+        return jsonify(result)
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -415,153 +257,31 @@ def api_recognize_single():
 
 @app.route("/api/recognize/multi", methods=["POST"])
 def api_recognize_multi():
-    """Multi-frame voting recognition for production accuracy.
-    
-    Pipeline:
-      N frames → detect face each → embedding each → 
-      average similarity per person → final decision
-    
-    Expects JSON:
-    {
-        "images": ["base64_1", "base64_2", ...],  // 5-10 frames
-        "threshold": 0.45  // optional override
-    }
-    """
+    """Multi-frame voting recognition."""
     try:
-        import concurrent.futures
-
-        t_start = time.time()
-        data = request.get_json()
-        images_b64 = data.get("images", [])
+        data = request.get_json(silent=True) or {}
+        b64_images = data.get("images", [])
         threshold = data.get("threshold", THRESHOLD)
 
-        if len(images_b64) < 2:
-            return jsonify({"success": False, "error": "Need at least 2 frames for multi-frame recognition"}), 400
+        if not b64_images:
+            return jsonify({"success": False, "error": "No images provided"}), 400
 
-        detector = get_detector()
-        recognizer = get_recognizer()
-        db = get_db()
+        images_bgr = []
+        for b64 in b64_images:
+            try:
+                if "," in b64:
+                    b64 = b64.split(",")[1]
+                img_bytes = base64.b64decode(b64)
+                arr = np.frombuffer(img_bytes, np.uint8)
+                img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                images_bgr.append(img)
+            except:
+                images_bgr.append(None)
 
-        # Step 1: Parallel decode
-        def decode_image(b64_str):
-            if "," in b64_str:
-                b64_str = b64_str.split(",")[1]
-            img_bytes = base64.b64decode(b64_str)
-            nparr = np.frombuffer(img_bytes, np.uint8)
-            return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        svc = get_service()
+        result = svc.recognize_multi(images_bgr, threshold=threshold)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            decoded_images = list(pool.map(decode_image, images_b64))
-
-        # Step 2: Extract embeddings from each frame
-        frame_results = []  # per-frame: { name, score, emb, quality }
-        valid_embeddings = []
-        valid_scores = []
-
-        for i, img in enumerate(decoded_images):
-            if img is None:
-                frame_results.append({"frame": i, "status": "decode_error"})
-                continue
-
-            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            faces = detector.detect(rgb)
-
-            if len(faces) != 1:
-                frame_results.append({"frame": i, "status": "no_single_face", "faces": len(faces)})
-                continue
-
-            face = faces[0]
-            q_score, q_ok, q_reason = face.quality_check(img)
-
-            emb = recognizer.get_embedding(img, face.lm5)
-            if emb is None:
-                frame_results.append({"frame": i, "status": "embedding_failed"})
-                continue
-
-            # L2 normalize (already done in get_embedding, but be explicit)
-            emb = emb / np.linalg.norm(emb)
-
-            # Match against DB
-            name, score = db.match(emb)
-            score = float(score)
-
-            valid_embeddings.append(emb)
-            valid_scores.append(score)
-
-            frame_results.append({
-                "frame": i,
-                "status": "ok",
-                "name": name,
-                "score": round(score, 4),
-                "quality": round(float(q_score), 4) if q_ok else q_reason
-            })
-
-        if len(valid_scores) == 0:
-            return jsonify({
-                "success": True,
-                "recognized": False,
-                "name": "Unknown",
-                "avg_score": 0,
-                "reason": "No valid faces detected in any frame",
-                "frames_total": len(images_b64),
-                "frames_valid": 0,
-                "frame_details": frame_results
-            })
-
-        # Step 3: Multi-frame voting
-        # Average the top scores (remove worst outliers)
-        sorted_scores = sorted(valid_scores, reverse=True)
-        # Use top 70% of scores (remove worst 30%)
-        keep_count = max(2, int(len(sorted_scores) * 0.7))
-        top_scores = sorted_scores[:keep_count]
-        avg_score = float(np.mean(top_scores))
-
-        # Get consensus name (majority voting)
-        name_votes = {}
-        for fr in frame_results:
-            if fr.get("status") == "ok" and fr.get("name"):
-                n = fr["name"]
-                name_votes[n] = name_votes.get(n, 0) + 1
-
-        best_name = max(name_votes, key=name_votes.get) if name_votes else "Unknown"
-        accepted = avg_score >= threshold
-
-        # Step 4: Average embedding for even higher accuracy
-        avg_emb = np.mean(valid_embeddings, axis=0)
-        avg_emb = avg_emb / np.linalg.norm(avg_emb)
-        avg_name, avg_emb_score = db.match(avg_emb)
-        avg_emb_score = float(avg_emb_score)
-
-        # Use the HIGHER of the two methods
-        final_score = max(avg_score, avg_emb_score)
-        final_name = avg_name if avg_emb_score > avg_score else best_name
-        final_accepted = final_score >= threshold
-
-        elapsed = time.time() - t_start
-
-        # Log attendance if recognized
-        if final_accepted:
-            db.log_attendance(final_name, final_score)
-
-        print(f"  [RECOG] Multi-frame: {len(valid_scores)}/{len(images_b64)} frames valid")
-        print(f"  [RECOG] Score voting: {avg_score:.4f} | Avg emb: {avg_emb_score:.4f} | Final: {final_score:.4f}")
-        print(f"  [RECOG] Result: {final_name} ({'ACCEPTED' if final_accepted else 'REJECTED'}) in {elapsed:.2f}s")
-
-        return jsonify({
-            "success": True,
-            "recognized": final_accepted,
-            "name": final_name if final_accepted else "Unknown",
-            "score": round(final_score, 4),
-            "avg_score_voting": round(avg_score, 4),
-            "avg_score_embedding": round(avg_emb_score, 4),
-            "accepted": final_accepted,
-            "frames_total": len(images_b64),
-            "frames_valid": len(valid_scores),
-            "per_frame_scores": [round(s, 4) for s in valid_scores],
-            "frame_details": frame_results,
-            "time_seconds": round(elapsed, 2),
-            "method": "multi_frame_voting"
-        })
+        return jsonify(result)
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -573,9 +293,9 @@ def api_recognize_multi():
 def api_attendance():
     """Get attendance logs."""
     try:
-        db = get_db()
+        svc = get_service()
         limit = request.args.get("limit", 50, type=int)
-        logs = db.get_attendance_logs(limit=limit)
+        logs = svc.get_attendance_logs(limit=limit)
         return jsonify({
             "success": True,
             "logs": logs
@@ -590,13 +310,9 @@ def api_attendance():
 def api_sync():
     """Sync FAISS index from Supabase."""
     try:
-        db = get_db()
-        db.sync_from_supabase()
-        return jsonify({
-            "success": True,
-            "message": "FAISS index synced from Supabase",
-            "total_vectors": db.total
-        })
+        svc = get_service()
+        svc.sync_db()
+        return jsonify({"success": True, "message": "Database synced"})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -607,39 +323,157 @@ def api_sync():
 def api_info():
     """Get system information."""
     try:
-        db = get_db()
-        recognizer = get_recognizer()
-        users = db.get_users()
-        return jsonify({
-            "success": True,
-            "system": {
-                "version": "4.0",
-                "device": recognizer.device,
-                "tta_enabled": TTA_ENABLED,
-                "threshold": THRESHOLD,
-                "total_users": len(users),
-                "total_vectors": db.total,
-                "database": "Supabase"
-            }
-        })
+        svc = get_service()
+        info = svc.get_system_info()
+        return jsonify({"success": True, "system": info})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ==================== PROMETHEUS METRICS ====================
+
+@app.route("/metrics")
+def prometheus_metrics():
+    """Prometheus scraping endpoint."""
+    return metrics_endpoint()
+
+
+# ==================== SOCKETIO: REALTIME RECOGNITION ====================
+
+# Lock to prevent concurrent recognition on the same connection
+_recog_lock = threading.Lock()
+
+
+@socketio.on('connect')
+def handle_connect():
+    logger.info(f"SocketIO client connected: {request.sid}")
+    emit('server_ready', {'status': 'connected'})
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    logger.info(f"SocketIO client disconnected: {request.sid}")
+
+
+@socketio.on('recognize_frame')
+def handle_recognize_frame(data):
+    """Realtime recognition: client sends 1 frame, server responds immediately."""
+    if not _recog_lock.acquire(blocking=False):
+        # Skip if previous frame is still being processed
+        return
+    
+    try:
+        b64_str = data.get('image', '')
+        if not b64_str:
+            emit('recognition_result', {'success': False, 'error': 'No image'})
+            return
+        
+        # Decode image
+        if ',' in b64_str:
+            b64_str = b64_str.split(',')[1]
+        img_bytes = base64.b64decode(b64_str)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            emit('recognition_result', {'success': False, 'error': 'Invalid image'})
+            return
+        
+        svc = get_service()
+        result = svc.recognize_realtime(img)
+        emit('recognition_result', result)
+        
+    except Exception as e:
+        logger.error(f"SocketIO recognize error: {e}")
+        emit('recognition_result', {'success': False, 'error': str(e)})
+    finally:
+        _recog_lock.release()
+
+
+# Lock for enrollment face check
+_enroll_lock = threading.Lock()
+
+
+@socketio.on('enroll_check_face')
+def handle_enroll_check_face(data):
+    """Check if face is properly positioned in oval for enrollment."""
+    if not _enroll_lock.acquire(blocking=False):
+        return  # Skip if still processing
+
+    try:
+        b64_str = data.get('image', '')
+        if not b64_str:
+            emit('enroll_face_status', {'face_ok': False, 'reason': 'no_image'})
+            return
+
+        if ',' in b64_str:
+            b64_str = b64_str.split(',')[1]
+        img_bytes = base64.b64decode(b64_str)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if img is None:
+            emit('enroll_face_status', {'face_ok': False, 'reason': 'invalid_image'})
+            return
+
+        svc = get_service()
+        
+        # Use service's public API
+        faces = svc.detect_faces(img)
+
+        h, w = img.shape[:2]
+        
+        if not faces:
+            logger.info(f"Enroll check: no face detected in {w}x{h} image")
+            emit('enroll_face_status', {'face_ok': False, 'in_oval': False, 'reason': 'no_face'})
+            return
+
+        face = svc.get_center_face(faces, w, h)
+        if not face:
+            emit('enroll_face_status', {'face_ok': False, 'in_oval': False, 'reason': 'no_face'})
+            return
+
+        # Check if face is in oval
+        in_oval = face.in_oval(w, h)
+
+        # Check quality
+        score, quality_ok, reason = face.quality_check(img)
+
+        # Check distance
+        dist_ok, dist_msg = face.distance_check(w)
+
+        face_ok = in_oval and quality_ok and dist_ok
+        
+        logger.info(f"Enroll check: in_oval={in_oval}, quality={quality_ok}({reason}), dist={dist_ok}, score={score:.2f}, face_ok={face_ok}")
+
+        emit('enroll_face_status', {
+            'face_ok': face_ok,
+            'in_oval': in_oval,
+            'quality_ok': quality_ok,
+            'quality_reason': reason,
+            'dist_ok': dist_ok,
+            'dist_msg': dist_msg if not dist_ok else '',
+            'score': round(score, 2)
+        })
+
+    except Exception as e:
+        logger.error(f"SocketIO enroll check error: {e}")
+        emit('enroll_face_status', {'face_ok': False, 'reason': str(e)})
+    finally:
+        _enroll_lock.release()
 
 
 # ==================== MAIN ====================
 
 if __name__ == "__main__":
-    print("\n" + "=" * 56)
-    print("   FACE RECOGNITION SYSTEM - Web Server")
-    print("   Flask + Supabase + MediaPipe + ArcFace")
-    print("=" * 56)
+    logger.info("=" * 56)
+    logger.info("FACE RECOGNITION SYSTEM v5.3 - SocketIO Realtime")
+    logger.info("Flask + SocketIO + Supabase + MediaPipe + ArcFace")
+    logger.info(f"Backend: {DB_BACKEND.upper()}")
+    logger.info("=" * 56)
     
-    if SUPABASE_URL == "YOUR_SUPABASE_URL":
-        print("\n  [WARNING] Supabase URL not configured!")
-        print("  Set SUPABASE_URL and SUPABASE_KEY in app.py or as env vars")
-        print("  Example:")
-        print("    set SUPABASE_URL=https://xxxxx.supabase.co")
-        print("    set SUPABASE_KEY=eyJhbGci...")
-        print()
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        logger.warning("Supabase credentials not configured!")
+        logger.warning("Set environment variables: SUPABASE_URL, SUPABASE_KEY")
 
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True, use_reloader=True, allow_unsafe_werkzeug=True)

@@ -38,8 +38,11 @@
     }
   </script>
 
+  <!-- Socket.IO Client -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
   <!-- Custom CSS -->
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 
 <body class="bg-dark-900 text-gray-100 font-inter min-h-screen">
@@ -181,87 +184,53 @@
       </div>
     </section>
 
-    <!-- ===== TAB: ENROLL ===== -->
+    <!-- ===== TAB: ENROLL (Simplified Auto-Capture) ===== -->
     <section id="tab-enroll" class="tab-panel hidden animate-slide-up">
       <div class="grid lg:grid-cols-5 gap-5 mt-5">
         <!-- Left: Webcam -->
         <div class="lg:col-span-3 bg-dark-700 border border-white/5 rounded-2xl p-5">
-          <h2 class="text-base font-semibold flex items-center gap-2 mb-4">📸 Đăng Ký Khuôn Mặt (5 Bước)</h2>
+          <h2 class="text-base font-semibold flex items-center gap-2 mb-4">📸 Đăng Ký Khuôn Mặt</h2>
 
-          <!-- Step Indicators -->
-          <div class="flex gap-1.5 mb-4" id="stepIndicators">
-            <div class="step-indicator flex-1 text-center py-2 rounded-lg bg-accent/20 border border-accent/40 text-xs font-semibold text-accent" data-step="0">
-              1. Thẳng (6)
-            </div>
-            <div class="step-indicator flex-1 text-center py-2 rounded-lg bg-dark-800 border border-white/5 text-xs font-medium text-gray-500" data-step="1">
-              2. Trái (6)
-            </div>
-            <div class="step-indicator flex-1 text-center py-2 rounded-lg bg-dark-800 border border-white/5 text-xs font-medium text-gray-500" data-step="2">
-              3. Phải (6)
-            </div>
-            <div class="step-indicator flex-1 text-center py-2 rounded-lg bg-dark-800 border border-white/5 text-xs font-medium text-gray-500" data-step="3">
-              4. Lên (5)
-            </div>
-            <div class="step-indicator flex-1 text-center py-2 rounded-lg bg-dark-800 border border-white/5 text-xs font-medium text-gray-500" data-step="4">
-              5. Xuống (5)
-            </div>
-          </div>
-
-          <!-- Webcam -->
+          <!-- Webcam with Face Oval Cutout -->
           <div class="relative w-full rounded-xl overflow-hidden bg-black aspect-[4/3]" id="enrollCamBox">
             <video id="enrollVideo" class="w-full h-full object-cover mirror" autoplay playsinline></video>
             <canvas id="enrollCanvas" class="hidden"></canvas>
+            <!-- Enrollment face mesh overlay -->
+            <canvas id="enrollMeshOverlay" class="absolute inset-0 w-full h-full z-10 pointer-events-none"></canvas>
 
-            <!-- Oval Guide -->
-            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div id="enrollOval" class="face-oval w-[38%] h-[62%]"></div>
-            </div>
+            <!-- Dark overlay with oval cutout -->
+            <div id="enrollOvalCutout" class="enroll-oval-cutout"></div>
 
-            <!-- Direction Arrow Overlay -->
-            <div id="enrollArrow" class="absolute inset-0 flex items-center justify-center pointer-events-none text-6xl opacity-60" style="display:none">
-              ⬆️
-            </div>
+            <!-- Corner brackets -->
+            <div class="face-bracket tl"></div>
+            <div class="face-bracket tr"></div>
+            <div class="face-bracket bl"></div>
+            <div class="face-bracket br"></div>
 
-            <!-- Step counter badge -->
-            <div class="absolute top-3 left-3 bg-black/60 glass px-3 py-1.5 rounded-full text-xs font-semibold text-purple-400">
-              Bước <span id="enrollStepNum">1</span>/5
-            </div>
-
-            <!-- Capture count -->
-            <div class="absolute top-3 right-3 bg-black/60 glass px-3 py-1.5 rounded-full text-sm font-semibold text-accent">
-              <span id="enrollCount">0</span> / <span id="enrollTotal">40</span>
-            </div>
-
-            <!-- Step instruction -->
-            <div id="enrollInstruction" class="absolute top-14 left-1/2 -translate-x-1/2 bg-gradient-to-r from-accent/20 to-purple-accent/20 glass px-5 py-2 rounded-full text-sm font-bold text-accent whitespace-nowrap border border-accent/20">
-              👁️ NHÌN THẲNG vào camera
+            <!-- Capture count badge -->
+            <div class="absolute top-3 right-3 bg-black/60 glass px-3 py-1.5 rounded-full text-sm font-semibold text-accent z-30">
+              <span id="enrollCount">0</span> / <span id="enrollTotal">30</span>
             </div>
 
             <!-- Status -->
-            <div id="enrollStatus" class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/60 glass px-4 py-2 rounded-full text-xs font-medium text-accent whitespace-nowrap">
-              Nhấn "Bắt Đầu" để khởi chụp
+            <div id="enrollStatus" class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/60 glass px-4 py-2 rounded-full text-xs font-medium text-accent whitespace-nowrap z-30">
+              Nhấn "Bắt Đầu" để đăng ký
+            </div>
+
+            <!-- Instruction -->
+            <div id="enrollInstruction" class="absolute top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-accent/20 to-purple-accent/20 glass px-5 py-2 rounded-full text-sm font-bold text-accent whitespace-nowrap border border-accent/20 z-30">
+              📷 Đưa khuôn mặt vào khung oval
             </div>
           </div>
 
-          <!-- Overall Progress -->
+          <!-- Progress Bar (below camera) -->
           <div class="mt-4">
             <div class="flex justify-between text-xs text-gray-400 mb-1.5">
-              <span>Tổng tiến trình</span>
-              <span id="enrollProgressLabel">0 / 40</span>
+              <span>Tiến trình quét</span>
+              <span id="enrollProgressLabel">0 / 30</span>
             </div>
-            <div class="w-full h-2 bg-dark-900 rounded-full overflow-hidden">
-              <div id="enrollProgressBar" class="h-full progress-gradient rounded-full transition-all duration-500" style="width: 0%"></div>
-            </div>
-          </div>
-
-          <!-- Step Progress -->
-          <div class="mt-2">
-            <div class="flex justify-between text-xs text-gray-400 mb-1.5">
-              <span id="enrollStepLabel">Bước 1: Nhìn thẳng</span>
-              <span id="enrollStepProgressLabel">0 / 10</span>
-            </div>
-            <div class="w-full h-1.5 bg-dark-900 rounded-full overflow-hidden">
-              <div id="enrollStepProgressBar" class="h-full bg-gradient-to-r from-yellow-400 to-amber-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+            <div class="w-full h-2.5 bg-dark-900 rounded-full overflow-hidden">
+              <div id="enrollProgressBar" class="h-full progress-gradient rounded-full transition-all duration-300" style="width: 0%"></div>
             </div>
           </div>
 
@@ -269,7 +238,7 @@
           <div id="enrollThumbs" class="grid grid-cols-10 gap-1.5 mt-4"></div>
         </div>
 
-        <!-- Right: Form + Steps Info -->
+        <!-- Right: Form -->
         <div class="lg:col-span-2 space-y-5">
           <!-- Name Form -->
           <div class="bg-dark-700 border border-white/5 rounded-2xl p-5">
@@ -294,54 +263,22 @@
             </div>
           </div>
 
-          <!-- Steps Info Card -->
+          <!-- Info Card -->
           <div class="bg-dark-700 border border-white/5 rounded-2xl p-5">
-            <h3 class="text-sm font-semibold mb-3 flex items-center gap-2">📋 Quy Trình 5 Bước</h3>
-            <div class="space-y-2" id="stepsInfoList">
-              <div class="flex items-center gap-3 px-3 py-2.5 bg-accent/10 border border-accent/20 rounded-lg" data-info-step="0">
-                <span class="text-lg">👁️</span>
-                <div class="flex-1">
-                  <p class="text-xs font-semibold text-accent">1. Nhìn thẳng camera</p>
-                  <p class="text-[10px] text-gray-500">6 ảnh · mặt hướng thẳng</p>
-                </div>
-                <span class="text-xs font-bold text-accent" id="stepCount0">0/6</span>
-              </div>
-              <div class="flex items-center gap-3 px-3 py-2.5 bg-dark-800 border border-white/5 rounded-lg" data-info-step="1">
-                <span class="text-lg">⬅️</span>
-                <div class="flex-1">
-                  <p class="text-xs font-semibold text-gray-400">2. Quay sang trái</p>
-                  <p class="text-[10px] text-gray-500">6 ảnh · quay đầu trái</p>
-                </div>
-                <span class="text-xs font-bold text-gray-500" id="stepCount1">0/6</span>
-              </div>
-              <div class="flex items-center gap-3 px-3 py-2.5 bg-dark-800 border border-white/5 rounded-lg" data-info-step="2">
-                <span class="text-lg">➡️</span>
-                <div class="flex-1">
-                  <p class="text-xs font-semibold text-gray-400">3. Quay sang phải</p>
-                  <p class="text-[10px] text-gray-500">6 ảnh · quay đầu phải</p>
-                </div>
-                <span class="text-xs font-bold text-gray-500" id="stepCount2">0/6</span>
-              </div>
-              <div class="flex items-center gap-3 px-3 py-2.5 bg-dark-800 border border-white/5 rounded-lg" data-info-step="3">
-                <span class="text-lg">⬆️</span>
-                <div class="flex-1">
-                  <p class="text-xs font-semibold text-gray-400">4. Ngẩng lên trên</p>
-                  <p class="text-[10px] text-gray-500">5 ảnh · mặt hướng lên</p>
-                </div>
-                <span class="text-xs font-bold text-gray-500" id="stepCount3">0/5</span>
-              </div>
-              <div class="flex items-center gap-3 px-3 py-2.5 bg-dark-800 border border-white/5 rounded-lg" data-info-step="4">
-                <span class="text-lg">⬇️</span>
-                <div class="flex-1">
-                  <p class="text-xs font-semibold text-gray-400">5. Cúi xuống dưới</p>
-                  <p class="text-[10px] text-gray-500">5 ảnh · mặt hướng xuống</p>
-                </div>
-                <span class="text-xs font-bold text-gray-500" id="stepCount4">0/5</span>
+            <h3 class="text-sm font-semibold mb-3 flex items-center gap-2">ℹ️ Hướng Dẫn</h3>
+            <div class="space-y-2 text-xs text-gray-400">
+              <p>1. Nhập tên → Nhấn <span class="text-accent font-semibold">Bắt Đầu</span></p>
+              <p>2. Nhìn thẳng vào camera, giữ yên</p>
+              <p>3. Hệ thống tự chụp <span class="text-accent font-semibold">30 frame</span> (~10 giây)</p>
+              <p>4. Đủ frame → tự động đăng ký</p>
+              <div class="mt-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                <p class="text-amber-400 font-semibold">💡 Mẹo</p>
+                <p class="text-gray-400 mt-1">Giữ mặt ổn định, ánh sáng đều. Hệ thống sẽ quét liên tục cho đến khi đủ đặc điểm.</p>
               </div>
             </div>
           </div>
 
-          <!-- Submit -->
+          <!-- Submit (auto-submit khi đủ frame, nhưng giữ button để submit thủ công) -->
           <button id="btnSubmitEnroll" onclick="submitEnroll()" disabled
             class="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold text-sm rounded-xl
                    hover:shadow-lg hover:shadow-emerald-500/20 hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:translate-y-0">
@@ -351,7 +288,7 @@
       </div>
     </section>
 
-    <!-- ===== TAB: RECOGNIZE ===== -->
+    <!-- ===== TAB: RECOGNIZE (SocketIO Realtime) ===== -->
     <section id="tab-recognize" class="tab-panel hidden animate-slide-up">
       <div class="grid lg:grid-cols-2 gap-5 mt-5">
         <!-- Left: Camera -->
@@ -360,17 +297,27 @@
           <div class="relative w-full rounded-xl overflow-hidden bg-black aspect-[4/3]">
             <video id="recogVideo" class="w-full h-full object-cover mirror" autoplay playsinline></video>
             <canvas id="recogCanvas" class="hidden"></canvas>
+            <canvas id="meshOverlay" class="absolute inset-0 w-full h-full z-10 pointer-events-none"></canvas>
+
+            <!-- Hướng dẫn -->
+            <div id="recogGuide" class="absolute top-4 left-1/2 -translate-x-1/2 bg-black/60 glass px-4 py-2 rounded-full text-xs font-semibold text-emerald-400 whitespace-nowrap shadow-xl z-20">
+               Đưa khuôn mặt vào camera — nhận diện tự động realtime
+            </div>
+
+            <!-- SocketIO status badge -->
+            <div id="socketStatus" class="absolute bottom-3 right-3 bg-black/60 glass px-3 py-1.5 rounded-full text-[11px] font-semibold z-20 flex items-center gap-1.5">
+              <span id="socketDot" class="w-2 h-2 rounded-full bg-gray-500"></span>
+              <span id="socketLabel" class="text-gray-400">Đang kết nối...</span>
+            </div>
           </div>
-          <div class="flex gap-3 mt-4">
+          <div class="flex flex-col gap-3 mt-4">
+            <select id="cameraSelect" class="w-full px-3 py-2 bg-dark-800 border border-white/5 rounded-lg text-xs text-gray-300 focus:outline-none focus:border-accent">
+              <option value="">📷 Đang tải danh sách camera...</option>
+            </select>
             <button onclick="startRecogCamera()" id="btnStartRecog"
               class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-accent to-accent-dark text-dark-900 font-semibold text-sm rounded-lg
                      hover:shadow-lg hover:shadow-accent/20 hover:-translate-y-0.5 transition-all duration-200">
               📷 Bật Camera
-            </button>
-            <button onclick="captureRecognize()" id="btnCapRecog" disabled
-              class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-accent/20 text-purple-400 border border-purple-accent/30 font-semibold text-sm rounded-lg
-                     hover:bg-purple-accent/30 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed">
-              ⚡ Nhận Diện
             </button>
           </div>
 
@@ -390,7 +337,7 @@
           <div id="recogResults" class="space-y-3">
             <div class="text-center py-16 text-gray-500">
               <p class="text-4xl mb-3 opacity-30">🔎</p>
-              <p class="text-sm">Chụp ảnh hoặc upload để nhận diện</p>
+              <p class="text-sm">Bật camera để nhận diện tự động</p>
             </div>
           </div>
         </div>
@@ -465,6 +412,34 @@
     let enrollInterval = null;
     let recogStream = null;
 
+    // ==================== SOCKET.IO ====================
+    const socket = io({ transports: ['websocket', 'polling'] });
+    let socketConnected = false;
+    let realtimeActive = false;
+    let realtimeSending = false;  // throttle: only 1 frame in-flight at a time
+
+    socket.on('connect', () => {
+      socketConnected = true;
+      const dot = document.getElementById('socketDot');
+      const label = document.getElementById('socketLabel');
+      if (dot) { dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-blink'; }
+      if (label) { label.textContent = 'Realtime'; label.className = 'text-emerald-400'; }
+      console.log('SocketIO connected');
+    });
+
+    socket.on('disconnect', () => {
+      socketConnected = false;
+      const dot = document.getElementById('socketDot');
+      const label = document.getElementById('socketLabel');
+      if (dot) { dot.className = 'w-2 h-2 rounded-full bg-red-400'; }
+      if (label) { label.textContent = 'Mất kết nối'; label.className = 'text-red-400'; }
+    });
+
+    socket.on('recognition_result', (data) => {
+      realtimeSending = false;  // allow next frame
+      handleRealtimeResult(data);
+    });
+
     // ==================== TAB SWITCHING ====================
     function switchTab(tab) {
       // Hide all panels
@@ -492,6 +467,29 @@
       if (tab === 'users') loadUsers();
       if (tab === 'attendance') loadAttendance();
       if (tab === 'dashboard') { loadDashboard(); loadUsers(); }
+
+      // Auto start/stop cameras based on active tab
+      if (tab === 'recognize') {
+        if (!recogStream) {
+          setTimeout(() => startRecogCamera(), 200); // Tự bật camera khi vô tab
+        }
+      } else {
+        if (recogStream) {
+          startRecogCamera(); // Tắt nó đi bằng cách gọi lại hàm toggle
+        }
+      }
+
+      if (tab !== 'enroll' && enrollStream) {
+        stopCapture();
+        if (enrollMeshFrame) { cancelAnimationFrame(enrollMeshFrame); enrollMeshFrame = null; }
+        if (enrollStream) {
+          enrollStream.getTracks().forEach(t => t.stop());
+          enrollStream = null;
+        }
+      }
+      if (tab === 'enroll' && !enrollStream) {
+        setTimeout(() => startEnrollCamera(), 200);
+      }
     }
 
     // ==================== TOAST ====================
@@ -679,257 +677,225 @@
       return canvas.toDataURL('image/jpeg', 0.85);
     }
 
-    // ==================== ENROLLMENT: 5-STEP WEBCAM ====================
-    // Matching main.py ENROLL_STEPS exactly
-    const ENROLL_STEPS = [
-      { instruction: 'NHÌN THẲNG vào camera',  count: 6, icon: '👁️', arrow: '',   poseDir: 'straight' },
-      { instruction: 'QUAY ĐẦU sang TRÁI',     count: 6, icon: '⬅️', arrow: '⬅️', poseDir: 'left' },
-      { instruction: 'QUAY ĐẦU sang PHẢI',     count: 6, icon: '➡️', arrow: '➡️', poseDir: 'right' },
-      { instruction: 'NGẨNG NHẸ lên TRÊN',     count: 5, icon: '⬆️', arrow: '⬆️', poseDir: 'up' },
-      { instruction: 'CÚI NHẸ xuống DƯỚI',     count: 5, icon: '⬇️', arrow: '⬇️', poseDir: 'down' },
-    ];
-    const ENROLL_TOTAL = ENROLL_STEPS.reduce((s, step) => s + step.count, 0); // 28
+    // ==================== ENROLLMENT: CLIENT-SIDE FACEMESH + OVAL CHECK ====================
+    const ENROLL_TARGET = 30;
+    const ENROLL_INTERVAL_MS = 250;
+    let enrollCapturing = false;
+    let enrollMeshFrame = null;
 
-    let currentStep = 0;
-    let stepCaptures = [];
-    let allCaptures = [];
-    let isCheckingPose = false; // prevent overlapping requests
+    function updateEnrollProgress(count) {
+      const pct = Math.round((count / ENROLL_TARGET) * 100);
+      document.getElementById('enrollProgressBar').style.width = pct + '%';
+      document.getElementById('enrollProgressLabel').textContent = `${count} / ${ENROLL_TARGET}`;
+    }
 
-    async function startCapture() {
-      const name = document.getElementById('enrollName').value.trim();
-      if (!name) {
-        showToast('Vui lòng nhập tên!', 'error');
-        document.getElementById('enrollName').focus();
-        return;
+    // Check if a point is inside an ellipse
+    function isPointInEllipse(px, py, cx, cy, rx, ry) {
+      return ((px - cx) ** 2) / (rx ** 2) + ((py - cy) ** 2) / (ry ** 2) <= 1;
+    }
+
+    // Check if face ellipse (from FACE_OVAL landmarks) is inside guide oval
+    function isFaceInsideGuide(landmarks, canvasW, canvasH) {
+      // Guide oval center & radii (matches CSS: 48% width, 68% height)
+      const ox = canvasW / 2;
+      const oy = canvasH / 2;
+      const rx = canvasW * 0.24;  // half of 48%
+      const ry = canvasH * 0.34;  // half of 68%
+
+      // Get face bounding box from landmarks (mirrored X)
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const lm of landmarks) {
+        const px = (1 - lm.x) * canvasW;  // mirror
+        const py = lm.y * canvasH;
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
       }
 
+      const faceCx = (minX + maxX) / 2;
+      const faceCy = (minY + maxY) / 2;
+      const faceW = maxX - minX;
+      const faceH = maxY - minY;
+      const faceRx = faceW * 0.42;
+      const faceRy = faceH * 0.48;
+
+      // Sample 24 points on face ellipse boundary
+      const steps = 24;
+      for (let i = 0; i < steps; i++) {
+        const t = (2 * Math.PI * i) / steps;
+        const px = faceCx + faceRx * Math.cos(t);
+        const py = faceCy + faceRy * Math.sin(t);
+        if (!isPointInEllipse(px, py, ox, oy, rx, ry)) {
+          return { inside: false, centered: false, sizeOk: false };
+        }
+      }
+
+      // Check centering
+      const offsetX = Math.abs(faceCx - ox);
+      const offsetY = Math.abs(faceCy - oy);
+      const centered = offsetX < rx * 0.2 && offsetY < ry * 0.2;
+
+      // Check size (not too small, not too big)
+      const sizeOk = faceW > rx * 1.0 && faceW < rx * 2.2
+                   && faceH > ry * 0.9 && faceH < ry * 2.0;
+
+      return { inside: true, centered, sizeOk };
+    }
+
+    // Enrollment mesh loop — draws face mesh + checks oval
+    function enrollMeshLoop() {
+      const video = document.getElementById('enrollVideo');
+      const canvas = document.getElementById('enrollMeshOverlay');
+      if (!video || !canvas || !video.srcObject || video.paused || video.ended) {
+        enrollMeshFrame = null; return;
+      }
+      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      }
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const oval = document.getElementById('enrollOvalCutout');
+      let faceValid = false;
+
+      if (faceLandmarker && video.videoWidth > 0) {
+        try {
+          const result = faceLandmarker.detectForVideo(video, performance.now());
+          if (result.faceLandmarks && result.faceLandmarks.length > 0) {
+            const lm = result.faceLandmarks[0];
+            const w = canvas.width, h = canvas.height;
+
+            // Check face in oval
+            const check = isFaceInsideGuide(lm, w, h);
+            faceValid = check.inside && check.centered && check.sizeOk;
+
+            const col = faceValid ? 'rgba(16,255,185,0.3)' : 'rgba(255,60,60,0.3)';
+            const colB = faceValid ? 'rgba(16,255,185,0.8)' : 'rgba(255,80,80,0.7)';
+
+            // Draw tessellation
+            if (FaceLandmarkerClass) {
+              ctx.strokeStyle = col; ctx.lineWidth = 0.6; ctx.beginPath();
+              for (const c of FaceLandmarkerClass.FACE_LANDMARKS_TESSELATION) {
+                const f = lm[c.start], t2 = lm[c.end];
+                ctx.moveTo((1-f.x)*w, f.y*h); ctx.lineTo((1-t2.x)*w, t2.y*h);
+              }
+              ctx.stroke();
+              // Draw face oval outline
+              ctx.strokeStyle = colB; ctx.lineWidth = 1.5; ctx.beginPath();
+              for (const c of FaceLandmarkerClass.FACE_LANDMARKS_FACE_OVAL) {
+                const f = lm[c.start], t2 = lm[c.end];
+                ctx.moveTo((1-f.x)*w, f.y*h); ctx.lineTo((1-t2.x)*w, t2.y*h);
+              }
+              ctx.stroke();
+            }
+          }
+        } catch(e) { console.warn('enrollMesh:', e); }
+      }
+
+      // Update oval styling
+      if (oval) {
+        oval.classList.toggle('face-inside', faceValid);
+        oval.classList.toggle('face-outside', !faceValid);
+        oval.classList.toggle('capturing', faceValid && enrollCapturing);
+      }
+
+      // Update status
+      if (enrollCapturing) {
+        const statusEl = document.getElementById('enrollStatus');
+        if (faceValid) {
+          statusEl.textContent = `✅ Đang quét... ${enrollCaptures.length}/${ENROLL_TARGET}`;
+          statusEl.className = 'absolute bottom-3 left-1/2 -translate-x-1/2 bg-emerald-500/70 glass px-4 py-2 rounded-full text-xs font-medium text-white whitespace-nowrap z-30';
+        } else {
+          statusEl.textContent = '⚠️ Đưa khuôn mặt vào giữa khung oval';
+          statusEl.className = 'absolute bottom-3 left-1/2 -translate-x-1/2 bg-amber-500/70 glass px-4 py-2 rounded-full text-xs font-medium text-white whitespace-nowrap z-30';
+        }
+      }
+
+      // Capture when valid
+      if (enrollCapturing && faceValid && enrollCaptures.length < ENROLL_TARGET) {
+        const now = performance.now();
+        if (!enrollMeshLoop._lastCap || now - enrollMeshLoop._lastCap >= ENROLL_INTERVAL_MS) {
+          enrollMeshLoop._lastCap = now;
+          const dataUrl = captureFrame('enrollVideo', 'enrollCanvas');
+          enrollCaptures.push(dataUrl);
+          const count = enrollCaptures.length;
+          document.getElementById('enrollCount').textContent = count;
+          updateEnrollProgress(count);
+          if (count >= 10) document.getElementById('btnSubmitEnroll').disabled = false;
+          if (count % 5 === 1 || count === ENROLL_TARGET) {
+            const thumbs = document.getElementById('enrollThumbs');
+            const div = document.createElement('div');
+            div.className = 'rounded-lg overflow-hidden border-2 border-emerald-500/30 aspect-square animate-thumb-pop';
+            div.innerHTML = `<img src="${dataUrl}" class="w-full h-full object-cover">`;
+            thumbs.appendChild(div);
+          }
+          if (count >= ENROLL_TARGET) {
+            enrollCapturing = false;
+            showToast('🎉 Đã quét đủ! Đang gửi đăng ký...', 'success');
+            submitEnroll();
+          }
+        }
+      }
+      enrollMeshFrame = requestAnimationFrame(enrollMeshLoop);
+    }
+
+    // Auto-start camera (called when switching to enroll tab)
+    async function startEnrollCamera() {
+      if (enrollStream) return;
       try {
-        enrollStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 640, height: 480, facingMode: 'user' }
-        });
+        await initFaceLandmarker();  // Ensure FaceLandmarker is loaded
+        enrollStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' } });
         document.getElementById('enrollVideo').srcObject = enrollStream;
-
-        // Reset state
-        currentStep = 0;
-        stepCaptures = [];
-        allCaptures = [];
-        enrollCaptures = [];
-        isCheckingPose = false;
-        document.getElementById('enrollThumbs').innerHTML = '';
-        updateStepUI();
-
-        document.getElementById('btnStartCapture').disabled = true;
-        document.getElementById('btnStopCapture').disabled = false;
-        document.getElementById('enrollName').disabled = true;
-
-        // Capture loop with SERVER-SIDE pose validation (700ms interval)
-        enrollInterval = setInterval(() => enrollTick(), 700);
-
-        showToast(`Camera đã bật! Bước 1: ${ENROLL_STEPS[0].instruction}`, 'info');
+        document.getElementById('enrollVideo').addEventListener('loadeddata', () => enrollMeshLoop(), { once: true });
       } catch(e) {
         showToast('Không thể truy cập camera: ' + e.message, 'error');
       }
     }
 
-    async function enrollTick() {
-      // Check if done
-      if (currentStep >= ENROLL_STEPS.length) {
-        stopCapture();
-        showToast('🎉 Đã chụp đủ 40 ảnh! Nhấn "Hoàn Tất Đăng Ký"', 'success');
-        return;
+    async function startCapture() {
+      const name = document.getElementById('enrollName').value.trim();
+      if (!name) { showToast('Vui lòng nhập tên!', 'error'); document.getElementById('enrollName').focus(); return; }
+
+      // Start camera + FaceMesh if not already on
+      if (!enrollStream) {
+        await startEnrollCamera();
       }
 
-      const step = ENROLL_STEPS[currentStep];
-
-      // Check if current step is complete
-      if (stepCaptures.length >= step.count) {
-        allCaptures.push(...stepCaptures);
-        stepCaptures = [];
-        currentStep++;
-        if (currentStep < ENROLL_STEPS.length) {
-          updateStepUI();
-          showToast(`✅ Bước ${currentStep} xong! Chuyển: ${ENROLL_STEPS[currentStep].instruction}`, 'info');
-        }
-        return;
-      }
-
-      // Prevent overlapping pose checks
-      if (isCheckingPose) return;
-      isCheckingPose = true;
-
-      try {
-        // Grab current frame — MIRRORED to match display + main.py cv2.flip(frame, 1)
-        const dataUrl = captureFrame('enrollVideo', 'enrollCanvas');
-
-        // Ask server to validate head pose
-        const res = await fetch(API + '/api/check_pose', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: dataUrl, direction: step.poseDir })
-        });
-        const pose = await res.json();
-
-        if (pose.valid) {
-          // Pose correct → capture frame
-          stepCaptures.push(dataUrl);
-          enrollCaptures.push(dataUrl);
-          updateEnrollUI();
-          document.getElementById('enrollStatus').textContent =
-            `✅ Tốt! Đã chụp ${stepCaptures.length}/${step.count}`;
-          document.getElementById('enrollStatus').className =
-            'absolute bottom-3 left-1/2 -translate-x-1/2 bg-emerald-500/70 glass px-4 py-2 rounded-full text-xs font-medium text-white whitespace-nowrap';
-        } else {
-          // Wrong pose → show message
-          const msg = pose.message || pose.reason || `Hãy ${step.instruction}`;
-          document.getElementById('enrollStatus').textContent = `❌ ${msg}`;
-          document.getElementById('enrollStatus').className =
-            'absolute bottom-3 left-1/2 -translate-x-1/2 bg-red-500/70 glass px-4 py-2 rounded-full text-xs font-medium text-white whitespace-nowrap';
-        }
-      } catch (e) {
-        // Network error — skip this tick
-        console.warn('Pose check error:', e);
-      }
-
-      isCheckingPose = false;
-    }
-
-    function updateStepUI() {
-      const step = ENROLL_STEPS[currentStep] || ENROLL_STEPS[ENROLL_STEPS.length - 1];
-
-      // Update step number
-      document.getElementById('enrollStepNum').textContent = currentStep + 1;
-
-      // Update instruction overlay
-      document.getElementById('enrollInstruction').innerHTML = `${step.icon} ${step.instruction}`;
-
-      // Update arrow overlay
-      const arrowEl = document.getElementById('enrollArrow');
-      if (step.arrow) {
-        arrowEl.style.display = 'flex';
-        arrowEl.textContent = step.arrow;
-      } else {
-        arrowEl.style.display = 'none';
-      }
-
-      // Update step label
-      document.getElementById('enrollStepLabel').textContent = `Bước ${currentStep + 1}: ${step.instruction}`;
-
-      // Update step indicators (top bar)
-      document.querySelectorAll('.step-indicator').forEach((el, i) => {
-        if (i < currentStep) {
-          // Completed
-          el.className = 'step-indicator flex-1 text-center py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-xs font-semibold text-emerald-400';
-        } else if (i === currentStep) {
-          // Current
-          el.className = 'step-indicator flex-1 text-center py-2 rounded-lg bg-accent/20 border border-accent/40 text-xs font-semibold text-accent';
-        } else {
-          // Pending
-          el.className = 'step-indicator flex-1 text-center py-2 rounded-lg bg-dark-800 border border-white/5 text-xs font-medium text-gray-500';
-        }
-      });
-
-      // Update steps info list (right panel)
-      document.querySelectorAll('[data-info-step]').forEach((el, i) => {
-        if (i < currentStep) {
-          el.className = 'flex items-center gap-3 px-3 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg';
-          el.querySelector('p:first-child').className = 'text-xs font-semibold text-emerald-400';
-          el.querySelector('span:last-child').className = 'text-xs font-bold text-emerald-400';
-        } else if (i === currentStep) {
-          el.className = 'flex items-center gap-3 px-3 py-2.5 bg-accent/10 border border-accent/20 rounded-lg';
-          el.querySelector('p:first-child').className = 'text-xs font-semibold text-accent';
-          el.querySelector('span:last-child').className = 'text-xs font-bold text-accent';
-        } else {
-          el.className = 'flex items-center gap-3 px-3 py-2.5 bg-dark-800 border border-white/5 rounded-lg';
-          el.querySelector('p:first-child').className = 'text-xs font-semibold text-gray-400';
-          el.querySelector('span:last-child').className = 'text-xs font-bold text-gray-500';
-        }
-      });
-    }
-
-    function updateEnrollUI() {
-      const totalDone = allCaptures.length + stepCaptures.length;
-      const step = ENROLL_STEPS[currentStep];
-      const stepPct = step ? Math.round((stepCaptures.length / step.count) * 100) : 100;
-      const totalPct = Math.round((totalDone / ENROLL_TOTAL) * 100);
-
-      // Overall progress
-      document.getElementById('enrollCount').textContent = totalDone;
-      document.getElementById('enrollTotal').textContent = ENROLL_TOTAL;
-      document.getElementById('enrollProgressBar').style.width = totalPct + '%';
-      document.getElementById('enrollProgressLabel').textContent = `${totalDone} / ${ENROLL_TOTAL}`;
-
-      // Step progress
-      if (step) {
-        document.getElementById('enrollStepProgressBar').style.width = stepPct + '%';
-        document.getElementById('enrollStepProgressLabel').textContent = `${stepCaptures.length} / ${step.count}`;
-      }
-
-      // Step counts in sidebar
-      for (let i = 0; i < ENROLL_STEPS.length; i++) {
-        const el = document.getElementById('stepCount' + i);
-        if (el) {
-          if (i < currentStep) {
-            el.textContent = `✓ ${ENROLL_STEPS[i].count}/${ENROLL_STEPS[i].count}`;
-          } else if (i === currentStep) {
-            el.textContent = `${stepCaptures.length}/${ENROLL_STEPS[i].count}`;
-          }
-        }
-      }
-
-      // Status
-      if (totalDone >= ENROLL_TOTAL) {
-        document.getElementById('enrollStatus').textContent = '✅ Đã chụp đủ 40 ảnh!';
-        document.getElementById('enrollStatus').classList.add('!text-emerald-400');
-      } else {
-        document.getElementById('enrollStatus').textContent = `📷 Đang chụp... ${stepCaptures.length}/${step?.count || 0}`;
-      }
-
-      document.getElementById('btnSubmitEnroll').disabled = totalDone < 10; // need at least 10
-
-      // Add thumbnail
-      if (totalDone > 0) {
-        const thumbs = document.getElementById('enrollThumbs');
-        if (thumbs.children.length < totalDone) {
-          const div = document.createElement('div');
-          div.className = 'rounded-lg overflow-hidden border-2 border-emerald-500/30 aspect-square animate-thumb-pop';
-          div.innerHTML = `<img src="${enrollCaptures[totalDone-1]}" class="w-full h-full object-cover">`;
-          thumbs.appendChild(div);
-        }
-      }
+      enrollCaptures = [];
+      enrollCapturing = true;
+      enrollMeshLoop._lastCap = 0;
+      document.getElementById('enrollThumbs').innerHTML = '';
+      document.getElementById('enrollCount').textContent = '0';
+      updateEnrollProgress(0);
+      document.getElementById('btnStartCapture').disabled = true;
+      document.getElementById('btnStopCapture').disabled = false;
+      document.getElementById('enrollName').disabled = true;
+      document.getElementById('btnSubmitEnroll').disabled = true;
+      document.getElementById('enrollInstruction').textContent = '📷 Đưa khuôn mặt vào khung oval';
+      showToast('Đưa mặt vào khung oval để quét...', 'info');
     }
 
     function stopCapture() {
-      if (enrollInterval) {
-        clearInterval(enrollInterval);
-        enrollInterval = null;
-      }
-      // Merge remaining step captures
-      if (stepCaptures.length > 0) {
-        allCaptures.push(...stepCaptures);
-        stepCaptures = [];
-      }
+      enrollCapturing = false;
       document.getElementById('btnStartCapture').disabled = false;
       document.getElementById('btnStopCapture').disabled = true;
       document.getElementById('enrollName').disabled = false;
-
-      const total = allCaptures.length;
+      const oval = document.getElementById('enrollOvalCutout');
+      if (oval) oval.classList.remove('face-inside', 'face-outside', 'capturing');
+      const total = enrollCaptures.length;
       document.getElementById('enrollStatus').textContent = `Đã dừng · ${total} ảnh`;
-      document.getElementById('enrollArrow').style.display = 'none';
+      document.getElementById('enrollStatus').className = 'absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/60 glass px-4 py-2 rounded-full text-xs font-medium text-accent whitespace-nowrap z-30';
+      if (total >= 10) document.getElementById('btnSubmitEnroll').disabled = false;
       showToast(`Đã chụp ${total} ảnh`, 'info');
     }
 
     async function submitEnroll() {
       const name = document.getElementById('enrollName').value.trim();
       const images = enrollCaptures;
-      if (!name || images.length < 3) {
-        showToast('Cần tên và ít nhất 3 ảnh!', 'error');
-        return;
-      }
-
+      if (!name || images.length < 3) { showToast('Cần tên và ít nhất 3 ảnh!', 'error'); return; }
       const btn = document.getElementById('btnSubmitEnroll');
       btn.disabled = true;
       btn.innerHTML = '<span class="inline-block w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></span> Đang xử lý...';
-
       try {
         const res = await fetch(API + '/api/enroll/base64', {
           method: 'POST',
@@ -937,207 +903,288 @@
           body: JSON.stringify({ name, images })
         });
         const data = await res.json();
-
         if (data.success) {
           showToast(`🎉 Đăng ký "${name}" thành công! ${data.total_embeddings} embeddings`, 'success');
-          // Full reset
-          enrollCaptures = [];
-          allCaptures = [];
-          stepCaptures = [];
-          currentStep = 0;
+          enrollCaptures = []; enrollCapturing = false;
           document.getElementById('enrollThumbs').innerHTML = '';
           document.getElementById('enrollCount').textContent = '0';
-          document.getElementById('enrollProgressBar').style.width = '0%';
-          document.getElementById('enrollProgressLabel').textContent = '0 / 40';
-          document.getElementById('enrollStepProgressBar').style.width = '0%';
-          document.getElementById('enrollStepProgressLabel').textContent = '0 / 10';
+          updateEnrollProgress(0);
           document.getElementById('enrollName').value = '';
           document.getElementById('enrollName').disabled = false;
-          document.getElementById('enrollOval').classList.remove('detecting');
-          document.getElementById('enrollArrow').style.display = 'none';
-          document.getElementById('enrollStatus').textContent = 'Nhấn "Bắt Đầu" để khởi chụp';
-          document.getElementById('enrollStatus').classList.remove('!text-emerald-400');
-          updateStepUI();
-          // Stop camera
-          if (enrollStream) {
-            enrollStream.getTracks().forEach(t => t.stop());
-            enrollStream = null;
-          }
-          if (enrollInterval) clearInterval(enrollInterval);
+          document.getElementById('enrollStatus').textContent = 'Nhấn "Bắt Đầu" để đăng ký';
+          document.getElementById('enrollStatus').className = 'absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/60 glass px-4 py-2 rounded-full text-xs font-medium text-accent whitespace-nowrap z-30';
+          const oval = document.getElementById('enrollOvalCutout');
+          if (oval) oval.classList.remove('face-inside', 'face-outside', 'capturing');
+          if (enrollMeshFrame) { cancelAnimationFrame(enrollMeshFrame); enrollMeshFrame = null; }
+          const mc = document.getElementById('enrollMeshOverlay');
+          if (mc) mc.getContext('2d').clearRect(0, 0, mc.width, mc.height);
+          if (enrollStream) { enrollStream.getTracks().forEach(t => t.stop()); enrollStream = null; }
           loadDashboard();
-        } else {
-          showToast(data.error, 'error');
-        }
-      } catch(e) {
-        showToast('Lỗi kết nối: ' + e.message, 'error');
-      }
-
+        } else { showToast(data.error, 'error'); }
+      } catch(e) { showToast('Lỗi kết nối: ' + e.message, 'error'); }
       btn.disabled = false;
       btn.innerHTML = '✅ Hoàn Tất Đăng Ký';
     }
 
-    // ==================== RECOGNITION ====================
-    const RECOG_FRAME_COUNT = 8;  // capture 8 frames
-    const RECOG_FRAME_DELAY = 200; // 200ms apart = 1.6s total
+    // ==================== RECOGNITION (SocketIO Realtime) ====================
+    let faceLandmarker = null;
+    let FaceLandmarkerClass = null;
+    let meshAnimFrame = null;
+    let meshLabelName = '';
+    let meshLabelAccepted = false;
 
-    async function startRecogCamera() {
+    // Load MediaPipe FaceLandmarker client-side
+    async function initFaceLandmarker() {
+      if (faceLandmarker) return;
       try {
-        recogStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 640, height: 480, facingMode: 'user' }
+        const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs');
+        const { FaceLandmarker, FilesetResolver } = vision;
+        FaceLandmarkerClass = FaceLandmarker;
+        const filesetResolver = await FilesetResolver.forVisionTasks(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm'
+        );
+        faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+          baseOptions: {
+            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+            delegate: 'GPU'
+          },
+          outputFaceBlendshapes: false,
+          runningMode: 'VIDEO',
+          numFaces: 1
         });
-        document.getElementById('recogVideo').srcObject = recogStream;
-        document.getElementById('btnCapRecog').disabled = false;
-        document.getElementById('btnStartRecog').innerHTML = '🟢 Camera ON';
-        showToast('Camera nhận diện đã bật', 'info');
       } catch(e) {
-        showToast('Không thể truy cập camera: ' + e.message, 'error');
+        console.error('Failed to load FaceLandmarker:', e);
       }
     }
 
-    async function captureRecognize() {
+    // Face Mesh drawing loop + SocketIO frame streaming
+    function drawMeshLoop() {
       const video = document.getElementById('recogVideo');
-      const canvas = document.getElementById('recogCanvas');
-      const btn = document.getElementById('btnCapRecog');
-      const resultsDiv = document.getElementById('recogResults');
-
-      if (!video.srcObject) {
-        showToast('Hãy bật camera trước!', 'error');
+      const canvas = document.getElementById('meshOverlay');
+      if (!video || !canvas || !video.srcObject || video.paused || video.ended) {
+        meshAnimFrame = null;
         return;
       }
 
-      btn.disabled = true;
-      btn.innerHTML = `<span class="inline-block w-4 h-4 border-2 border-white/20 border-t-purple-400 rounded-full animate-spin"></span> Chụp ${RECOG_FRAME_COUNT} frame...`;
+      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
 
-      resultsDiv.innerHTML = `
-        <div class="text-center py-10">
-          <span class="inline-block w-8 h-8 border-2 border-white/10 border-t-accent rounded-full animate-spin"></span>
-          <p class="text-sm text-gray-400 mt-3">📹 Đang quay ${RECOG_FRAME_COUNT} frame...</p>
-          <div class="w-48 h-1.5 bg-dark-900 rounded-full mx-auto mt-3 overflow-hidden">
-            <div id="recogProgressBar" class="h-full bg-purple-500 rounded-full transition-all" style="width:0%"></div>
-          </div>
-        </div>`;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let hasFace = false;
 
-      // Capture N frames with delay (mirrored)
-      const frames = [];
-      for (let i = 0; i < RECOG_FRAME_COUNT; i++) {
-        frames.push(captureFrame('recogVideo', 'recogCanvas'));
+      if (faceLandmarker && video.videoWidth > 0) {
+        const result = faceLandmarker.detectForVideo(video, performance.now());
+        if (result.faceLandmarks && result.faceLandmarks.length > 0) {
+          hasFace = true;
+          const landmarks = result.faceLandmarks[0];
+          const w = canvas.width;
+          const h = canvas.height;
+          const accepted = meshLabelAccepted;
+          const colorMain = accepted ? 'rgba(16, 255, 185, 0.35)' : 'rgba(255, 60, 60, 0.35)';
+          const colorBright = accepted ? 'rgba(16, 255, 185, 0.85)' : 'rgba(255, 80, 80, 0.85)';
+          const colorDot = accepted ? 'rgba(16, 255, 185, 1)' : 'rgba(255, 80, 80, 1)';
 
-        // Update progress
-        const pbar = document.getElementById('recogProgressBar');
-        if (pbar) pbar.style.width = `${((i + 1) / RECOG_FRAME_COUNT) * 100}%`;
+          // Tessellation
+          ctx.strokeStyle = colorMain;
+          ctx.lineWidth = 0.7;
+          ctx.beginPath();
+          const tess = FaceLandmarkerClass.FACE_LANDMARKS_TESSELATION;
+          for (const conn of tess) {
+            const from = landmarks[conn.start];
+            const to = landmarks[conn.end];
+            ctx.moveTo((1 - from.x) * w, from.y * h);
+            ctx.lineTo((1 - to.x) * w, to.y * h);
+          }
+          ctx.stroke();
 
-        if (i < RECOG_FRAME_COUNT - 1) {
-          await new Promise(r => setTimeout(r, RECOG_FRAME_DELAY));
+          // Highlight features
+          ctx.strokeStyle = colorBright;
+          ctx.lineWidth = 1.4;
+          const features = [
+            FaceLandmarkerClass.FACE_LANDMARKS_LEFT_EYE,
+            FaceLandmarkerClass.FACE_LANDMARKS_RIGHT_EYE,
+            FaceLandmarkerClass.FACE_LANDMARKS_LIPS,
+            FaceLandmarkerClass.FACE_LANDMARKS_LEFT_EYEBROW,
+            FaceLandmarkerClass.FACE_LANDMARKS_RIGHT_EYEBROW,
+            FaceLandmarkerClass.FACE_LANDMARKS_FACE_OVAL,
+          ];
+          for (const group of features) {
+            ctx.beginPath();
+            for (const conn of group) {
+              const from = landmarks[conn.start];
+              const to = landmarks[conn.end];
+              ctx.moveTo((1 - from.x) * w, from.y * h);
+              ctx.lineTo((1 - to.x) * w, to.y * h);
+            }
+            ctx.stroke();
+          }
+
+          // Key points
+          ctx.fillStyle = colorDot;
+          const keyPts = [1, 33, 263, 61, 291, 159, 386, 13, 14];
+          for (const idx of keyPts) {
+            const pt = landmarks[idx];
+            ctx.beginPath();
+            ctx.arc((1 - pt.x) * w, pt.y * h, 2, 0, 6.283);
+            ctx.fill();
+          }
+
+          // Name label
+          if (meshLabelName) {
+            const nose = landmarks[1];
+            const nx = (1 - nose.x) * w;
+            const ny = nose.y * h - 80;
+            ctx.font = 'bold 14px Inter, sans-serif';
+            const textW = ctx.measureText(meshLabelName).width;
+            ctx.fillStyle = accepted ? 'rgba(16,185,129,0.9)' : 'rgba(239,68,68,0.9)';
+            ctx.beginPath();
+            ctx.roundRect(nx - textW/2 - 8, ny - 12, textW + 16, 24, 5);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'center';
+            ctx.fillText(meshLabelName, nx, ny + 4);
+          }
         }
       }
 
-      resultsDiv.innerHTML = `
-        <div class="text-center py-10">
-          <span class="inline-block w-8 h-8 border-2 border-white/10 border-t-accent rounded-full animate-spin"></span>
-          <p class="text-sm text-gray-400 mt-3">🧠 Xử lý ${frames.length} frame (multi-frame voting)...</p>
-        </div>`;
+      // SocketIO: send frame when face detected and not already sending
+      if (hasFace && realtimeActive && socketConnected && !realtimeSending) {
+        realtimeSending = true;
+        const dataUrl = captureFrame('recogVideo', 'recogCanvas');
+        socket.emit('recognize_frame', { image: dataUrl });
+      }
 
-      // Send to multi-frame API
-      try {
-        const res = await fetch(API + '/api/recognize/multi', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ images: frames })
-        });
-        const data = await res.json();
+      meshAnimFrame = requestAnimationFrame(drawMeshLoop);
+    }
 
-        if (!data.success) {
-          resultsDiv.innerHTML = `<div class="text-center py-10 text-red-400"><p class="text-2xl mb-2">❌</p><p class="text-sm">${data.error}</p></div>`;
-          btn.disabled = false;
-          btn.innerHTML = '⚡ Nhận Diện';
-          return;
-        }
+    // Handle realtime result from SocketIO
+    let _lastResultKey = '';  // Track last result to avoid re-rendering same content
 
-        if (!data.recognized && data.frames_valid === 0) {
-          resultsDiv.innerHTML = `<div class="text-center py-10 text-amber-400"><p class="text-2xl mb-2">😕</p><p class="text-sm">Không tìm thấy khuôn mặt trong ${data.frames_total} frame</p></div>`;
-          btn.disabled = false;
-          btn.innerHTML = '⚡ Nhận Diện';
-          return;
-        }
+    function handleRealtimeResult(data) {
+      if (!data.success) return;
 
-        // Render results
-        const accepted = data.accepted;
-        const borderColor = accepted ? 'border-emerald-500/30' : 'border-red-500/30';
-        const bgColor = accepted ? 'bg-emerald-500/5' : 'bg-red-500/5';
-        const iconBg = accepted ? 'bg-emerald-500/20 border-emerald-500' : 'bg-red-500/20 border-red-500';
-        const icon = accepted ? '✅' : '❌';
-        const scoreColor = accepted ? 'text-emerald-400' : 'text-red-400';
-        const scorePct = (data.score * 100).toFixed(1);
-        const barColor = accepted ? 'bg-emerald-500' : 'bg-red-500';
+      // Build a key from status + name to detect changes
+      const resultKey = `${data.status}:${data.name || ''}`;
+      
+      // Skip re-render if result hasn't changed
+      if (resultKey === _lastResultKey) return;
+      _lastResultKey = resultKey;
 
-        // Per-frame scores visualization
-        const frameScoresHTML = data.per_frame_scores ? data.per_frame_scores.map((s, i) => {
-          const pct = (s * 100).toFixed(0);
-          const color = s >= 0.45 ? 'bg-emerald-500' : 'bg-red-500';
-          return `<div class="flex items-center gap-2 text-[10px]">
-            <span class="text-gray-500 w-8">F${i+1}</span>
-            <div class="flex-1 h-1.5 bg-dark-900 rounded-full overflow-hidden">
-              <div class="${color} h-full rounded-full" style="width:${pct}%"></div>
-            </div>
-            <span class="${s >= 0.45 ? 'text-emerald-400' : 'text-red-400'} w-10 text-right">${pct}%</span>
-          </div>`;
-        }).join('') : '';
+      const resultsDiv = document.getElementById('recogResults');
 
+      if (data.status === 'accepted') {
+        meshLabelName = data.name;
+        meshLabelAccepted = true;
         resultsDiv.innerHTML = `
-          <div class="flex items-center gap-5 p-5 ${bgColor} border ${borderColor} rounded-2xl animate-slide-up">
-            <div class="w-16 h-16 rounded-full ${iconBg} border-2 flex items-center justify-center text-2xl flex-shrink-0">
-              ${icon}
+          <div class="flex items-center gap-5 p-5 bg-emerald-500/5 border border-emerald-500/30 rounded-2xl animate-slide-up">
+            <div class="w-16 h-16 rounded-full bg-emerald-500/20 border-emerald-500 border-2 flex items-center justify-center text-2xl flex-shrink-0 animate-pulse">
+              ✅
             </div>
             <div class="flex-1 min-w-0">
-              <p class="text-xl font-bold ${accepted ? 'text-emerald-400' : 'text-red-400'}">${data.name}</p>
-              <p class="text-sm text-gray-400 mt-1">
-                Final Score: <span class="font-semibold ${scoreColor}">${scorePct}%</span>
-                <span class="inline-block w-20 h-1.5 bg-dark-900 rounded-full ml-2 align-middle overflow-hidden">
-                  <span class="block h-full ${barColor} rounded-full" style="width:${scorePct}%"></span>
-                </span>
-              </p>
-              <p class="text-[11px] font-medium mt-1 ${accepted ? 'text-emerald-500' : 'text-red-500'}">
-                ${accepted ? '✓ ACCEPTED — Điểm danh thành công' : '✗ REJECTED — Không nhận diện được'}
+              <p class="text-xl font-bold text-emerald-400">${data.name}</p>
+              <p class="text-[11px] font-medium mt-1 text-emerald-500">
+                ✓ ACCEPTED — Đã nhận diện thành công
               </p>
             </div>
-          </div>
-
-          <!-- Multi-frame stats -->
-          <div class="mt-3 p-4 bg-dark-800 border border-white/5 rounded-xl">
-            <h4 class="text-xs font-semibold text-gray-400 mb-2">📊 Multi-Frame Analysis</h4>
-            <div class="grid grid-cols-3 gap-3 mb-3">
-              <div class="text-center">
-                <p class="text-lg font-bold text-accent">${data.frames_valid}/${data.frames_total}</p>
-                <p class="text-[10px] text-gray-500">Frames Valid</p>
-              </div>
-              <div class="text-center">
-                <p class="text-lg font-bold text-purple-400">${(data.avg_score_voting * 100).toFixed(1)}%</p>
-                <p class="text-[10px] text-gray-500">Score Voting</p>
-              </div>
-              <div class="text-center">
-                <p class="text-lg font-bold text-blue-400">${(data.avg_score_embedding * 100).toFixed(1)}%</p>
-                <p class="text-[10px] text-gray-500">Avg Embedding</p>
-              </div>
-            </div>
-            ${frameScoresHTML ? `
-              <div class="border-t border-white/5 pt-2 mt-2">
-                <p class="text-[10px] text-gray-500 mb-1.5 font-medium">Per-Frame Scores:</p>
-                <div class="space-y-1">${frameScoresHTML}</div>
-              </div>
-            ` : ''}
-            <p class="text-[10px] text-gray-600 mt-2">⏱ ${data.time_seconds}s · Method: ${data.method}</p>
           </div>`;
-
-        if (accepted) {
-          showToast(`🎉 Nhận diện: ${data.name} (${scorePct}%)`, 'success');
-        }
-
-      } catch(e) {
-        resultsDiv.innerHTML = `<div class="text-center py-10 text-red-400"><p class="text-2xl mb-2">⚠️</p><p class="text-sm">Lỗi: ${e.message}</p></div>`;
+      } else if (data.status === 'spoof') {
+        meshLabelName = 'SPOOF';
+        meshLabelAccepted = false;
+        resultsDiv.innerHTML = `
+          <div class="flex items-center gap-5 p-5 bg-red-500/5 border border-red-500/30 rounded-2xl animate-slide-up">
+            <div class="w-16 h-16 rounded-full bg-red-500/20 border-red-500 border-2 flex items-center justify-center text-2xl flex-shrink-0">
+              📵
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-xl font-bold text-red-400">Ảnh giả mạo</p>
+              <p class="text-[11px] font-medium mt-1 text-red-400">
+                ✗ REJECTED — Phát hiện màn hình / giấy in
+              </p>
+            </div>
+          </div>`;
+      } else if (data.status === 'rejected') {
+        meshLabelName = '';
+        meshLabelAccepted = false;
+        resultsDiv.innerHTML = `
+          <div class="flex items-center gap-5 p-5 bg-red-500/5 border border-red-500/30 rounded-2xl animate-slide-up">
+            <div class="w-16 h-16 rounded-full bg-red-500/20 border-red-500 border-2 flex items-center justify-center text-2xl flex-shrink-0">
+              ❌
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-xl font-bold text-red-400">Không xác định</p>
+              <p class="text-[11px] font-medium mt-1 text-red-400">
+                ✗ REJECTED — Không nhận diện được
+              </p>
+            </div>
+          </div>`;
+      } else if (data.status === 'no_face') {
+        meshLabelName = '';
+        meshLabelAccepted = false;
+        // Don't update results panel for no_face — keep last result
       }
+    }
 
-      btn.disabled = false;
-      btn.innerHTML = '⚡ Nhận Diện';
+    async function startRecogCamera() {
+      const btnStart = document.getElementById('btnStartRecog');
+      
+      if (recogStream) {
+        // Tắt camera
+        realtimeActive = false;
+        recogStream.getTracks().forEach(t => t.stop());
+        recogStream = null;
+        document.getElementById('recogVideo').srcObject = null;
+        if (meshAnimFrame) {
+          cancelAnimationFrame(meshAnimFrame);
+          meshAnimFrame = null;
+        }
+        const canvas = document.getElementById('meshOverlay');
+        if (canvas) {
+          canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+        }
+        meshLabelName = '';
+        meshLabelAccepted = false;
+        
+        btnStart.innerHTML = '📷 Bật Camera';
+        btnStart.classList.replace('bg-red-500/20', 'bg-gradient-to-r');
+        btnStart.classList.replace('text-red-400', 'text-dark-900');
+      } else {
+        // Bật camera
+        try {
+          await initFaceLandmarker();
+          
+          const selectedCamera = document.getElementById('cameraSelect')?.value;
+          const videoConstraints = selectedCamera 
+            ? { deviceId: { exact: selectedCamera }, width: 640, height: 480 }
+            : { width: 640, height: 480, facingMode: 'user' };
+
+          recogStream = await navigator.mediaDevices.getUserMedia({
+            video: videoConstraints
+          });
+          const video = document.getElementById('recogVideo');
+          video.srcObject = recogStream;
+          
+          video.addEventListener('loadeddata', () => {
+            drawMeshLoop();
+          }, { once: true });
+          
+          btnStart.innerHTML = '🔴 Tắt Camera';
+          btnStart.classList.replace('bg-gradient-to-r', 'bg-red-500/20');
+          btnStart.classList.replace('text-dark-900', 'text-red-400');
+          
+          meshLabelName = '';
+          meshLabelAccepted = false;
+          realtimeActive = true;
+          realtimeSending = false;
+          
+          showToast('Realtime nhận diện đã bật — đưa mặt vào camera', 'info');
+          
+        } catch(e) {
+          showToast('Không thể truy cập camera: ' + e.message, 'error');
+        }
+      }
     }
 
     async function recognizeFromFile(event) {
@@ -1156,7 +1203,7 @@
       resultsDiv.innerHTML = `
         <div class="text-center py-10">
           <span class="inline-block w-8 h-8 border-2 border-white/10 border-t-accent rounded-full animate-spin"></span>
-          <p class="text-sm text-gray-400 mt-3">Đang nhận diện (single frame)...</p>
+          <p class="text-sm text-gray-400 mt-3">Đang nhận diện...</p>
         </div>`;
 
       try {
@@ -1183,9 +1230,6 @@
           const bgColor = accepted ? 'bg-emerald-500/5' : 'bg-red-500/5';
           const iconBg = accepted ? 'bg-emerald-500/20 border-emerald-500' : 'bg-red-500/20 border-red-500';
           const icon = accepted ? '✅' : '❌';
-          const scoreColor = accepted ? 'text-emerald-400' : 'text-red-400';
-          const scorePct = (r.score * 100).toFixed(1);
-          const barColor = accepted ? 'bg-emerald-500' : 'bg-red-500';
 
           return `
             <div class="flex items-center gap-5 p-5 ${bgColor} border ${borderColor} rounded-2xl animate-slide-up">
@@ -1194,15 +1238,8 @@
               </div>
               <div class="flex-1 min-w-0">
                 <p class="text-xl font-bold ${accepted ? 'text-emerald-400' : 'text-red-400'}">${r.name}</p>
-                <p class="text-sm text-gray-400 mt-1">
-                  Score: <span class="font-semibold ${scoreColor}">${scorePct}%</span>
-                  <span class="inline-block w-16 h-1.5 bg-dark-900 rounded-full ml-2 align-middle overflow-hidden">
-                    <span class="block h-full ${barColor} rounded-full" style="width:${scorePct}%"></span>
-                  </span>
-                </p>
-                ${r.quality_score ? `<p class="text-xs text-gray-500 mt-0.5">Quality: ${(r.quality_score * 100).toFixed(0)}%</p>` : ''}
                 <p class="text-[11px] font-medium mt-1 ${accepted ? 'text-emerald-500' : 'text-red-500'}">
-                  ${accepted ? '✓ ACCEPTED' : '✗ REJECTED'} · Single-frame
+                  ${accepted ? '✓ CHẤP NHẬN' : '✗ TỪ CHỐI'} · Upload
                 </p>
               </div>
             </div>`;
@@ -1214,9 +1251,36 @@
     }
 
     // ==================== INIT ====================
+    async function populateCameraSelect() {
+      const select = document.getElementById('cameraSelect');
+      if (!select) return;
+      try {
+        await navigator.mediaDevices.getUserMedia({ video: true }); // Request permission to see labels
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(dev => dev.kind === 'videoinput');
+        
+        select.innerHTML = '';
+        if (videoDevices.length === 0) {
+          select.innerHTML = '<option value="">Không tìm thấy camera</option>';
+          return;
+        }
+        
+        videoDevices.forEach((dev, index) => {
+          const option = document.createElement('option');
+          option.value = dev.deviceId;
+          option.text = dev.label || `Camera ${index + 1}`;
+          select.appendChild(option);
+        });
+      } catch (e) {
+        console.error("Camera access denied or not available", e);
+        select.innerHTML = '<option value="">📷 Click Bật Camera trước (cấp quyền) để hiện danh sách</option>';
+      }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       loadDashboard();
       loadUsers();
+      populateCameraSelect();
     });
   </script>
 

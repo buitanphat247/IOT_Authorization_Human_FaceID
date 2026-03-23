@@ -14,11 +14,14 @@ from datetime import datetime
 try:
     from supabase import create_client, Client
 except ImportError:
-    import subprocess, sys
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "supabase"])
-    from supabase import create_client, Client
+    raise ImportError(
+        "Missing 'supabase' package. Run: pip install supabase"
+    )
 
 from config import DB_DIR, TOP_K
+from logger import get_logger
+
+logger = get_logger("supabase_db")
 
 
 class SupabaseDatabase:
@@ -74,12 +77,39 @@ class SupabaseDatabase:
                 self._id_map = json.load(f)
         
         self._next_id = max([int(k) for k in self._id_map.keys()], default=0) + 1
+        
+        # Prototype store: { name: numpy_512d }
+        self._proto_path = os.path.join(db_dir, "prototypes.npy")
+        self._prototypes = {}
+        self._proto_matrix = None
+        self._proto_names = []
+        
+        if os.path.exists(self._proto_path):
+            try:
+                data = np.load(self._proto_path, allow_pickle=True).item()
+                self._prototypes = data
+                logger.info(f"Loaded {len(self._prototypes)} user prototypes")
+                self._update_proto_cache()
+            except Exception:
+                self._prototypes = {}
+
+    def _update_proto_cache(self):
+        """Tạo ma trận numpy cache cho prototypes."""
+        if self._prototypes:
+            self._proto_matrix = np.array(list(self._prototypes.values()), dtype=np.float32)
+            self._proto_names = list(self._prototypes.keys())
+        else:
+            self._proto_matrix = None
+            self._proto_names = []
+
+    def _save_prototypes(self):
+        np.save(self._proto_path, self._prototypes)
 
     def _auto_setup_tables(self):
         """Auto-create tables on Supabase if they don't exist."""
         import httpx
 
-        print("  [DB] Checking Supabase tables...")
+        logger.info("Checking Supabase tables...")
 
         # Use Supabase REST SQL endpoint (via pg-meta or rpc)
         # Method 1: Try using postgrest to check if tables exist
@@ -87,13 +117,13 @@ class SupabaseDatabase:
             # Quick test: try to select from face_embeddings
             self.supabase.table("face_embeddings").select("id").limit(1).execute()
             self.supabase.table("attendance_logs").select("id").limit(1).execute()
-            print("  [DB] ✓ Tables already exist!")
+            logger.info("✓ Tables already exist!")
             return
         except Exception:
             pass
 
         # Method 2: Create tables via Supabase Management API (SQL)
-        print("  [DB] Tables not found. Creating via SQL...")
+        logger.info("Tables not found. Creating via SQL...")
         
         try:
             # Use the Supabase SQL endpoint
@@ -110,26 +140,19 @@ class SupabaseDatabase:
             resp = httpx.post(sql_url, json={"query": self._SETUP_SQL}, headers=headers, timeout=30)
             
             if resp.status_code in (200, 201):
-                print("  [DB] ✓ Tables created successfully via RPC!")
+                logger.info("✓ Tables created successfully via RPC!")
                 return
         except Exception:
             pass
 
         # Method 3: If RPC doesn't work, print instructions
-        print("  [DB] ⚠ Could not auto-create tables.")
-        print("  [DB] Please create tables manually:")
-        print("  " + "=" * 50)
-        print("  1. Go to: https://supabase.com/dashboard")
-        print("  2. Open your project → SQL Editor")
-        print("  3. Run the SQL from: supabase_schema.sql")
-        print("  " + "=" * 50)
-        print("  [DB] Or run this command:")
-        print(f'  curl -X POST "{self._url}/rest/v1/rpc/exec_sql" \\')
-        print(f'    -H "apikey: {self._key[:20]}..." \\')
-        print(f'    -H "Authorization: Bearer {self._key[:20]}..." \\')
-        print('    -H "Content-Type: application/json" \\')
-        print('    -d \'{"query": "CREATE TABLE IF NOT EXISTS ..."}\'')
-        print()
+        logger.warning("Could not auto-create tables.")
+        logger.warning("Please create tables manually:")
+        logger.warning("="*50)
+        logger.warning("1. Go to: https://supabase.com/dashboard")
+        logger.warning("2. Open your project → SQL Editor")
+        logger.warning("3. Run the SQL from: supabase_schema.sql")
+        logger.warning("="*50)
 
     def _save(self):
         faiss.write_index(self._index, self._idx_path)
@@ -138,14 +161,48 @@ class SupabaseDatabase:
 
     def sync_from_supabase(self):
         """Download all embeddings from Supabase and rebuild FAISS index.
-        Uses batch FAISS operations for speed.
+        
+        BUG-03 mitigation:
+        - Paginated fetch (1000 rows/batch) to avoid Supabase timeout
+        - Skip re-sync if FAISS already matches cloud count
+        - RAM usage warning for large datasets
         """
         import time
         t0 = time.time()
 
-        # Fetch all rows (paginated if needed)
-        result = self.supabase.table("face_embeddings").select("*").execute()
-        rows = result.data
+        # Quick count check — skip sync if FAISS already up-to-date
+        try:
+            count_result = self.supabase.table("face_embeddings") \
+                .select("id", count="exact").execute()
+            cloud_count = count_result.count if count_result.count else len(count_result.data)
+        except Exception:
+            cloud_count = None
+        
+        if cloud_count is not None and self._index.ntotal == cloud_count and cloud_count > 0:
+            logger.info(f"SYNC: FAISS already has {cloud_count} vectors = cloud count. Skipping full sync.")
+            return
+
+        # RAM estimation warning
+        if cloud_count and cloud_count > 5000:
+            est_ram_mb = cloud_count * self._dim * 4 / (1024 * 1024)
+            logger.warning(f"SYNC WARNING: {cloud_count} embeddings will use ~{est_ram_mb:.0f} MB RAM in FAISS.")
+            logger.warning("Consider switching to DB_BACKEND=pgvector for large datasets.")
+
+        # Paginated fetch (1000 rows per batch)
+        PAGE_SIZE = 1000
+        rows = []
+        offset = 0
+        while True:
+            batch = self.supabase.table("face_embeddings") \
+                .select("*") \
+                .range(offset, offset + PAGE_SIZE - 1) \
+                .execute()
+            if not batch.data:
+                break
+            rows.extend(batch.data)
+            if len(batch.data) < PAGE_SIZE:
+                break
+            offset += PAGE_SIZE
 
         # Rebuild FAISS with batch add
         base = faiss.IndexFlatIP(self._dim)
@@ -173,9 +230,9 @@ class SupabaseDatabase:
 
         self._save()
         elapsed = time.time() - t0
-        print(f"  [SYNC] {len(rows)} embeddings synced in {elapsed:.2f}s")
+        logger.info(f"SYNC: {len(rows)} embeddings synced in {elapsed:.2f}s")
 
-    def add_user(self, name, embeddings, scores=None):
+    def add_user(self, name, embeddings, scores=None, prototype=None):
         """Add user with embeddings to Supabase + FAISS.
         Uses BATCH INSERT for Supabase (1 API call instead of N).
         """
@@ -228,8 +285,21 @@ class SupabaseDatabase:
             self._index.add_with_ids(all_vecs, all_ids)
 
         self._save()
+        
+        # Cập nhật prototype cục bộ
+        if prototype is not None:
+            self._prototypes[name] = np.array(prototype, dtype=np.float32)
+        elif embeddings:
+            embs = np.array(embeddings, dtype=np.float32)
+            proto = embs.mean(axis=0)
+            proto = proto / np.linalg.norm(proto)
+            self._prototypes[name] = proto
+            
+        self._save_prototypes()
+        self._update_proto_cache()
+        
         elapsed = time.time() - t0
-        print(f"  [ADD] {name}: {len(all_inserted)} embeddings in {elapsed:.2f}s")
+        logger.info(f"ADD: {name}: {len(all_inserted)} embeddings in {elapsed:.2f}s")
 
     def remove_user(self, name):
         """Remove all embeddings for a user from Supabase + FAISS."""
@@ -247,32 +317,48 @@ class SupabaseDatabase:
             self._index.remove_ids(np.array(ids_to_remove, dtype=np.int64))
             self._save()
 
-    def match(self, query_emb):
-        """Find best matching user via FAISS nearest neighbor."""
-        if self._index.ntotal == 0:
-            return "Unknown", 0.0
+        # Remove prototype
+        if name in self._prototypes:
+            del self._prototypes[name]
+            self._save_prototypes()
+            self._update_proto_cache()
 
-        k = min(TOP_K * 5, self._index.ntotal)
-        scores, ids = self._index.search(
-            np.array([query_emb], dtype=np.float32), k
+    def match(self, query_emb):
+        """Find best matching user via dual-strategy matching.
+        Delegates to shared MatchingEngine (BUG-09 fix).
+        """
+        from matching import MatchingEngine
+        from config import PROTOTYPE_ENABLED, PROTOTYPE_WEIGHT
+        
+        engine = MatchingEngine(
+            top_k=TOP_K,
+            proto_weight=PROTOTYPE_WEIGHT,
+            proto_enabled=PROTOTYPE_ENABLED
+        )
+        
+        def id_to_name_fn(valid_ids):
+            """Resolve FAISS IDs to user names via local id_map."""
+            if not valid_ids:
+                return {}
+            result = {}
+            for vid in valid_ids:
+                info = self._id_map.get(str(vid))
+                if info:
+                    result[vid] = info["name"]
+            return result
+        
+        return engine.match(
+            query_emb, self._index, id_to_name_fn,
+            self._proto_matrix, self._proto_names
         )
 
-        user_scores = defaultdict(list)
-        for score, eid in zip(scores[0], ids[0]):
-            if eid == -1:
-                continue
-            info = self._id_map.get(str(int(eid)))
-            if info:
-                user_scores[info["name"]].append(float(score))
+    def get_prototype(self, name):
+        """Get prototype vector for a user."""
+        return self._prototypes.get(name)
 
-        best_name, best_score = "Unknown", 0.0
-        for name, sc_list in user_scores.items():
-            avg = np.mean(sorted(sc_list, reverse=True)[:TOP_K])
-            if avg > best_score:
-                best_score = avg
-                best_name = name
-
-        return best_name, best_score
+    def has_prototype(self, name):
+        """Check if user has a prototype."""
+        return name in self._prototypes
 
     def get_users(self):
         """Get dict {name: embedding_count} from Supabase."""
