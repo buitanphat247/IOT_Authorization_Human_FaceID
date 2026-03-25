@@ -65,11 +65,11 @@ graph LR
 
 ```mermaid
 graph TD
-    classDef ai fill:#e1bee7,stroke:#333,stroke-width:2px
-    classDef process fill:#bbdefb,stroke:#333,stroke-width:2px
-    classDef db fill:#c8e6c9,stroke:#333,stroke-width:2px
-    classDef web fill:#ffe0b2,stroke:#333,stroke-width:2px
-    classDef hw fill:#f8bbd0,stroke:#333,stroke-width:2px
+    classDef ai fill:#e1bee7,stroke:#333,stroke-width:2px,color:#000
+    classDef process fill:#bbdefb,stroke:#333,stroke-width:2px,color:#000
+    classDef db fill:#c8e6c9,stroke:#333,stroke-width:2px,color:#000
+    classDef web fill:#ffe0b2,stroke:#333,stroke-width:2px,color:#000
+    classDef hw fill:#f8bbd0,stroke:#333,stroke-width:2px,color:#000
     classDef reject fill:#ef5350,stroke:#333,color:#fff
 
     subgraph LAYER1 ["Tầng 1: Phát Hiện & Lọc"]
