@@ -28,8 +28,8 @@ load_dotenv(os.path.join(base_dir, '.env'))
 
 from config import *
 from logger import get_logger
-from detector import FaceDetector
-from recognizer import FaceRecognizer
+from models.detector import FaceDetector
+from models.recognizer import FaceRecognizer
 from metrics import metrics, metrics_endpoint
 
 logger = get_logger("app")
@@ -62,16 +62,16 @@ def get_service():
         
         # Select database backend based on config
         if DB_BACKEND == "pgvector":
-            from pgvector_db import PgVectorDatabase
+            from database.pgvector_db import PgVectorDatabase
             db = PgVectorDatabase(SUPABASE_URL, SUPABASE_KEY)
             logger.info("Using pgvector cloud-native backend")
         else:
-            from supabase_db import SupabaseDatabase
+            from database.supabase_db import SupabaseDatabase
             db = SupabaseDatabase(SUPABASE_URL, SUPABASE_KEY)
             db.sync_from_supabase()
             logger.info("Using FAISS local backend")
         
-        from anti_spoof import AntiSpoofer
+        from models.anti_spoof import AntiSpoofer
         
         # Load Anti-Spoofing model (dùng path từ config)
         spoofer = None
@@ -266,17 +266,20 @@ def api_recognize_multi():
         if not b64_images:
             return jsonify({"success": False, "error": "No images provided"}), 400
 
-        images_bgr = []
-        for b64 in b64_images:
+        import concurrent.futures
+
+        def _decode(b64):
             try:
                 if "," in b64:
                     b64 = b64.split(",")[1]
                 img_bytes = base64.b64decode(b64)
                 arr = np.frombuffer(img_bytes, np.uint8)
-                img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-                images_bgr.append(img)
+                return cv2.imdecode(arr, cv2.IMREAD_COLOR)
             except:
-                images_bgr.append(None)
+                return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(b64_images), 8)) as pool:
+            images_bgr = list(pool.map(_decode, b64_images))
 
         svc = get_service()
         result = svc.recognize_multi(images_bgr, threshold=threshold)

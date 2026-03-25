@@ -301,7 +301,7 @@
 
             <!-- Hướng dẫn -->
             <div id="recogGuide" class="absolute top-4 left-1/2 -translate-x-1/2 bg-black/60 glass px-4 py-2 rounded-full text-xs font-semibold text-emerald-400 whitespace-nowrap shadow-xl z-20">
-               Đưa khuôn mặt vào camera — nhận diện tự động realtime
+               Đưa khuôn mặt vào camera — Nhấn Quét để Nhận Diện
             </div>
 
             <!-- SocketIO status badge -->
@@ -314,11 +314,16 @@
             <select id="cameraSelect" class="w-full px-3 py-2 bg-dark-800 border border-white/5 rounded-lg text-xs text-gray-300 focus:outline-none focus:border-accent">
               <option value="">📷 Đang tải danh sách camera...</option>
             </select>
-            <button onclick="startRecogCamera()" id="btnStartRecog"
-              class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-accent to-accent-dark text-dark-900 font-semibold text-sm rounded-lg
-                     hover:shadow-lg hover:shadow-accent/20 hover:-translate-y-0.5 transition-all duration-200">
-              📷 Bật Camera
-            </button>
+            <div class="flex gap-2">
+              <button onclick="startRecogCamera()" id="btnStartRecog"
+                class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-accent to-accent-dark text-dark-900 font-semibold text-sm rounded-lg hover:shadow-lg hover:shadow-accent/20 hover:-translate-y-0.5 transition-all duration-200">
+                📷 Bật Camera
+              </button>
+              <button onclick="scanForRecognition()" id="btnScanRecog" style="display: none;"
+                class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold text-sm rounded-lg hover:shadow-lg transition-all duration-200">
+                🔍 Quét Nhận Diện
+              </button>
+            </div>
           </div>
 
           <!-- File upload recognize -->
@@ -337,7 +342,7 @@
           <div id="recogResults" class="space-y-3">
             <div class="text-center py-16 text-gray-500">
               <p class="text-4xl mb-3 opacity-30">🔎</p>
-              <p class="text-sm">Bật camera để nhận diện tự động</p>
+              <p class="text-sm">Bật camera và nhấn "Quét Nhận Diện"</p>
             </div>
           </div>
         </div>
@@ -1050,14 +1055,63 @@
         }
       }
 
-      // SocketIO: send frame when face detected and not already sending
-      if (hasFace && realtimeActive && socketConnected && !realtimeSending) {
-        realtimeSending = true;
-        const dataUrl = captureFrame('recogVideo', 'recogCanvas');
-        socket.emit('recognize_frame', { image: dataUrl });
+      // ĐÃ TẮT SOCKET GỬI AUTO (chuyển sang bấm nút thủ công)
+      meshAnimFrame = requestAnimationFrame(drawMeshLoop);
+    }
+
+    async function scanForRecognition() {
+      const btn = document.getElementById('btnScanRecog');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="inline-block w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></span> Đang chụp...';
+      
+      const resultsDiv = document.getElementById('recogResults');
+      resultsDiv.innerHTML = `
+        <div class="text-center py-10">
+          <span class="inline-block w-8 h-8 border-2 border-white/10 border-t-accent rounded-full animate-spin"></span>
+          <p class="text-sm text-gray-400 mt-3">Đang xử lý ...</p>
+        </div>`;
+
+      // Chụp 5 khung hình liên tục cách nhau 30ms — gần như tức thì
+      const images = [];
+      for(let i=0; i<5; i++) {
+        images.push(captureFrame('recogVideo', 'recogCanvas'));
+        if(i < 4) await new Promise(r => setTimeout(r, 30));
       }
 
-      meshAnimFrame = requestAnimationFrame(drawMeshLoop);
+      btn.innerHTML = '🔄 Đang kiểm tra...';
+
+      try {
+        const res = await fetch(API + '/api/recognize/multi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ images: images })
+        });
+        const data = await res.json();
+        
+        _lastResultKey = ''; // Bắt buộc render lại
+        
+        if (data.success) {
+          if (data.recognized) {
+            handleRealtimeResult({ success: true, status: 'accepted', name: data.name });
+          } else {
+            if (data.frame_details && data.frame_details.some(d => d.status === 'spoof_failed')) {
+              handleRealtimeResult({ success: true, status: 'spoof', name: '' });
+            } else if (data.frames_valid === 0) {
+              resultsDiv.innerHTML = `<div class="text-center py-10 text-amber-400"><p class="text-2xl mb-2">😕</p><p class="text-sm">Không tìm thấy rõ khuôn mặt</p></div>`;
+            } else {
+              handleRealtimeResult({ success: true, status: 'rejected', name: '' });
+            }
+          }
+        } else {
+          resultsDiv.innerHTML = `<div class="text-center py-10 text-red-400"><p class="text-2xl mb-2">⚠️</p><p class="text-sm">${data.error}</p></div>`;
+        }
+      } catch(e) {
+        showToast('Lỗi nhận diện: ' + e.message, 'error');
+        resultsDiv.innerHTML = `<div class="text-center py-10 text-red-400"><p class="text-2xl mb-2">⚠️</p><p class="text-sm">Mất kết nối server</p></div>`;
+      }
+      
+      btn.disabled = false;
+      btn.innerHTML = '🔍 Quét Nhận Diện';
     }
 
     // Handle realtime result from SocketIO
@@ -1075,7 +1129,7 @@
 
       const resultsDiv = document.getElementById('recogResults');
 
-      if (data.status === 'accepted') {
+      if (data.status === 'accepted' && data.name !== 'Unknown') {
         meshLabelName = data.name;
         meshLabelAccepted = true;
         resultsDiv.innerHTML = `
@@ -1105,7 +1159,7 @@
               </p>
             </div>
           </div>`;
-      } else if (data.status === 'rejected') {
+      } else if (data.status === 'rejected' || data.name === 'Unknown') {
         meshLabelName = '';
         meshLabelAccepted = false;
         resultsDiv.innerHTML = `
@@ -1150,6 +1204,8 @@
         btnStart.innerHTML = '📷 Bật Camera';
         btnStart.classList.replace('bg-red-500/20', 'bg-gradient-to-r');
         btnStart.classList.replace('text-red-400', 'text-dark-900');
+        
+        document.getElementById('btnScanRecog').style.display = 'none';
       } else {
         // Bật camera
         try {
@@ -1174,12 +1230,14 @@
           btnStart.classList.replace('bg-gradient-to-r', 'bg-red-500/20');
           btnStart.classList.replace('text-dark-900', 'text-red-400');
           
+          document.getElementById('btnScanRecog').style.display = 'inline-flex';
+          
           meshLabelName = '';
           meshLabelAccepted = false;
-          realtimeActive = true;
+          realtimeActive = false; // Tắt auto socket
           realtimeSending = false;
           
-          showToast('Realtime nhận diện đã bật — đưa mặt vào camera', 'info');
+          showToast('Camera đã bật — nhấn Quét Nhận Diện', 'info');
           
         } catch(e) {
           showToast('Không thể truy cập camera: ' + e.message, 'error');

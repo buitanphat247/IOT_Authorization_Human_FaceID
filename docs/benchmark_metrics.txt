@@ -1,0 +1,5 @@
+KẾT QUẢ BENCHMARK LFW - MODEL PRETRAINED
+Genuine Pairs: 238335
+Imposter Pairs: 8803217
+EER: 0.053%
+Optimal Threshold: 0.234

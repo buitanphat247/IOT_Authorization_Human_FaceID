@@ -118,7 +118,7 @@ class FaceDatabase:
         """Find best matching user via dual-strategy matching.
         Delegates to shared MatchingEngine (BUG-09 fix).
         """
-        from matching import MatchingEngine
+        from models.matching import MatchingEngine
         engine = MatchingEngine(
             top_k=TOP_K,
             proto_weight=PROTOTYPE_WEIGHT,

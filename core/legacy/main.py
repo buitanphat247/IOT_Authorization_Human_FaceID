@@ -43,10 +43,10 @@ import concurrent.futures
 from collections import defaultdict, deque
 
 from config import *
-from detector import FaceDetector
-from recognizer import FaceRecognizer
-from database import FaceDatabase
-from anti_spoof import AntiSpoofer
+from models.detector import FaceDetector
+from models.recognizer import FaceRecognizer
+from database.database import FaceDatabase
+from models.anti_spoof import AntiSpoofer
 from logger import get_logger
 
 logger = get_logger("main")

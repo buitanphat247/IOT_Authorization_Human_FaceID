@@ -470,18 +470,33 @@ python core/main.py
 | `enroll_check_face` | Client → Server | `{image: base64_jpeg}` |
 | `enroll_face_status` | Server → Client | `{face_ok, in_oval, quality_ok}` |
 
+## 📊 Performance & Benchmark LFW
+
+### 1. Điểm Chuẩn Nhận Diện (LFW Benchmark - w600k_r50)
+
+Hệ thống Core Backend phân tích Nhận Diện được trang bị Mô hình Pretrained chuẩn thế giới và đã xuất sắc vượt qua bài thi trên kho ảnh sinh trắc học **LFW (Labeled Faces in the Wild)** với kết quả tiệm cận hoàn hảo:
+
+![Biểu Đồ Phân Tách Điểm Mù (EER)](docs/benchmark_lfw_v4.png)
+
+| Chỉ số (Metrics) | Thống Kê Đo Được | Ý Nghĩa Chuyên Ngành |
+|---|---|---|
+| **Cặp Cùng Người (Genuine)** | 238,335 pairs | Gần 240 nghìn cặp ảnh giống nhau đã được kiểm tra |
+| **Cặp Khác Người (Imposter)** | 8,803,217 pairs | Gần 9 triệu cặp ảnh người râu ria khác nhau bị đối phó |
+| 💎 **EER (Lỗi Nhận Diện Sai)** | **0.053%** | **Xuất sắc**: Sai số siêu nhỏ (Chỉ 1 trên ~2000 ca bị chập chờn) |
+| 📏 **Ngưỡng Cosine Tối Ưu** | **0.234** | Điểm phân cách tuyệt đối giữa 2 ngọn đồi Xanh - Đỏ |
+
 ---
 
-## 📊 Performance
+### 2. Tốc Độ Phản Hồi Xử Lý Realtime
 
-| Metric | Giá trị |
+| Metric | Giá trị đo trung bình |
 |---|---|
-| Detection (MediaPipe) | ~8ms/frame |
-| Anti-Spoofing (MiniFASNet) | ~5ms/frame |
-| Embedding (ArcFace ONNX CPU) | ~15ms/face |
-| FAISS Search (100 users) | ~1ms |
-| E2E SocketIO latency | ~50–80ms |
-| Enrollment (30 frames) | ~10 giây |
+| Tốc độ Detection (MediaPipe) | ~8ms/frame |
+| Tốc độ Anti-Spoofing (MiniFASNet)| ~5ms/frame |
+| Trích xuất Vector (ArcFace ONNX CPU)| ~15ms/face |
+| FAISS Search (Tra cứu trên 100 users)| ~1ms |
+| E2E SocketIO (Độ trễ truyền Web-to-Core)| ~50–80ms |
+| Tiến trình Đăng ký Gương mặt (30 frames)| ~10 giây |
 
 ---
 

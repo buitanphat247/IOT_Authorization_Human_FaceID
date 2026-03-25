@@ -7,6 +7,7 @@ This protects the Web layer from interface changes in core/.
 """
 
 import time
+import threading
 import numpy as np
 from logger import get_logger
 
@@ -25,21 +26,26 @@ class FaceService:
         self._recognizer = recognizer
         self._db = db
         self._spoofer = spoofer
+        # Locks cho thread-safe parallel processing
+        self._detect_lock = threading.Lock()
+        self._recog_lock = threading.Lock()
+        self._match_lock = threading.Lock()
         logger.info("FaceService initialized")
 
     # ==================== DETECTION ====================
 
     def detect_faces(self, img_bgr, tracking_state=None):
-        """Detect faces in a BGR image.
+        """Detect faces in a BGR image. Thread-safe via lock.
         Returns list of FaceData objects.
         """
         import cv2
         rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-        return self._detector.detect(rgb, tracking_state=tracking_state)
+        with self._detect_lock:
+            return self._detector.detect(rgb, tracking_state=tracking_state)
 
     def get_center_face(self, faces, frame_w, frame_h):
         """Get the face closest to center."""
-        from detector import get_center_face
+        from models.detector import get_center_face
         return get_center_face(faces, frame_w, frame_h)
 
     # ==================== REALTIME RECOGNITION (SocketIO optimized) ====================
@@ -71,8 +77,10 @@ class FaceService:
         
         q_score, q_ok, q_reason = face.quality_check(img_bgr)
         
-        # Skip extremely bad quality
-        if not q_ok and q_reason in {"Nho", "Rong"}:
+        # Reject khi quality quá tệ — bao gồm mờ, tối, nghiêng, rung
+        # Không chỉ "Nho"/"Rong", mà bất kỳ failure nào có score < 0.3
+        # đều cho embedding noise cao → match nhầm
+        if not q_ok and (q_reason in {"Nho", "Rong"} or q_score < 0.3):
             return {
                 "success": True,
                 "name": "",
@@ -103,7 +111,12 @@ class FaceService:
         
         name, score = self._db.match(emb)
         score = float(score)
-        accepted = score >= THRESHOLD_ACCEPT_HIGH_QUALITY
+        
+        # Bắt buộc rejected nếu MatchingEngine trả về Unknown (vd: do margin limit)
+        if name == "Unknown":
+            accepted = False
+        else:
+            accepted = score >= THRESHOLD_ACCEPT_HIGH_QUALITY
         
         if score < THRESHOLD_REJECT:
             name = "Unknown"
@@ -167,7 +180,12 @@ class FaceService:
             if emb is not None:
                 name, score = self._db.match(emb)
                 score = float(score)
-                accepted = bool(score >= threshold)
+                # Sửa lỗi: Nếu là Unknown thì không bao giờ được accepted
+                if name == "Unknown":
+                    accepted = False
+                else:
+                    accepted = bool(score >= threshold)
+                
                 result["name"] = name if accepted else "Unknown"
                 result["score"] = round(score, 4)
                 result["accepted"] = accepted
@@ -185,6 +203,8 @@ class FaceService:
     def recognize_multi(self, images_bgr, threshold=None):
         """Multi-frame voting recognition with Dynamic Threshold.
         
+        Enhanced: Parallel frame processing via ThreadPoolExecutor.
+        
         Args:
             images_bgr: list of BGR images
             threshold: (Optional) Override high-quality threshold
@@ -192,72 +212,72 @@ class FaceService:
         Returns:
             dict with voting results
         """
+        import concurrent.futures
         from config import THRESHOLD_ACCEPT_HIGH_QUALITY, THRESHOLD_ACCEPT_LOW_QUALITY, BLINK_EAR_CLOSED, BLINK_EAR_OPEN
         if threshold is None:
             threshold = THRESHOLD_ACCEPT_HIGH_QUALITY
-        valid_embeddings = []
-        valid_scores = []
-        frame_results = []
-        tracking_state = {}
+        
+        t_start = time.time()
 
-        for i, img in enumerate(images_bgr):
+        def _process_frame(args):
+            """Xử lý 1 frame độc lập — thread-safe."""
+            i, img = args
             if img is None:
-                logger.info(f"FRAME {i}: SKIP - decode_error")
-                frame_results.append({"frame": i, "status": "decode_error"})
-                continue
+                return {"frame": i, "status": "decode_error"}, None, None
 
-            faces = self.detect_faces(img, tracking_state=tracking_state)
+            faces = self.detect_faces(img)
             h, w = img.shape[:2]
             face = self.get_center_face(faces, w, h)
 
             if face is None:
-                logger.info(f"FRAME {i}: SKIP - no_face (detected={len(faces)})")
-                frame_results.append({"frame": i, "status": "no_face", "faces": len(faces)})
-                continue
+                return {"frame": i, "status": "no_face", "faces": len(faces)}, None, None
 
             q_score, q_ok, q_reason = face.quality_check(img)
             left_ear, right_ear, avg_ear = face.eye_openness()
-            logger.info(f"FRAME {i}: quality={q_score:.3f}, ok={q_ok}, reason={q_reason}, ear={avg_ear:.3f}")
-            
-            # Cho multi-frame API: chỉ HARD REJECT khi face quá nhỏ hoặc rỗng
-            # Các lỗi quality khác (blur, brightness, tilt) → vẫn tiếp tục extract embedding
-            # vì multi-frame voting sẽ giảm trọng số frame chất lượng thấp
+
             hard_reject_reasons = {"Nho", "Rong"}
-            if not q_ok and q_reason in hard_reject_reasons:
-                logger.info(f"FRAME {i}: SKIP - hard reject ({q_reason})")
-                frame_results.append({"frame": i, "status": "quality_failed", "reason": q_reason})
-                continue
-            
-            # Anti-Spoofing detection using the new v2 model
+            if not q_ok and (q_reason in hard_reject_reasons or q_score < 0.3):
+                return {"frame": i, "status": "quality_failed", "reason": q_reason}, None, None
+
             if self._spoofer:
                 is_real, spoof_score = self._spoofer.is_real(img, face.bbox)
                 if not is_real:
-                    logger.warning(f"FRAME {i}: REJECT - SPOOF DETECTED (score={spoof_score:.3f})")
-                    frame_results.append({"frame": i, "status": "spoof_failed", "reason": "Spoof detected"})
-                    continue
-                
-            emb = self._recognizer.get_embedding(img, face.lm5)
+                    return {"frame": i, "status": "spoof_failed", "reason": "Spoof detected"}, None, None
 
+            with self._recog_lock:
+                emb = self._recognizer.get_embedding(img, face.lm5)
             if emb is None:
-                logger.info(f"FRAME {i}: SKIP - embedding_failed")
-                frame_results.append({"frame": i, "status": "embedding_failed"})
-                continue
+                return {"frame": i, "status": "embedding_failed"}, None, None
 
             emb = emb / np.linalg.norm(emb)
-            name, score = self._db.match(emb)
+            with self._match_lock:
+                name, score = self._db.match(emb)
             score = float(score)
-            
-            logger.info(f"FRAME {i}: OK - match={name}, raw_score={score:.4f}")
 
-            valid_embeddings.append(emb)
-            valid_scores.append(score)
-
-            frame_results.append({
+            result = {
                 "frame": i, "status": "ok",
                 "name": name, "score": round(score, 4),
                 "quality": round(float(q_score), 4) if q_ok else q_reason,
                 "avg_ear": avg_ear
-            })
+            }
+            return result, emb, score
+
+        # === XỬ LÝ SONG SONG TẤT CẢ FRAME ===
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(images_bgr), 4)) as pool:
+            futures = list(pool.map(_process_frame, enumerate(images_bgr)))
+
+        # Tách kết quả
+        frame_results = []
+        valid_embeddings = []
+        valid_scores = []
+        for fr, emb, score in futures:
+            frame_results.append(fr)
+            if fr["status"] == "ok" and emb is not None:
+                valid_embeddings.append(emb)
+                valid_scores.append(score)
+                logger.info(f"FRAME {fr['frame']}: OK - match={fr['name']}, raw_score={score:.4f}")
+            else:
+                logger.info(f"FRAME {fr['frame']}: SKIP - {fr['status']}")
 
         if not valid_scores:
             return {
@@ -272,10 +292,11 @@ class FaceService:
         keep_count = max(2, int(len(sorted_scores) * 0.7))
         avg_score = float(np.mean(sorted_scores[:keep_count]))
 
-        # Majority name voting
+        # Majority name voting — loại "Unknown" ra khỏi voting
+        # Vì Unknown không phải tên thật, nếu đếm sẽ làm lệch kết quả
         name_votes = {}
         for fr in frame_results:
-            if fr.get("status") == "ok" and fr.get("name"):
+            if fr.get("status") == "ok" and fr.get("name") and fr["name"] != "Unknown":
                 n = fr["name"]
                 name_votes[n] = name_votes.get(n, 0) + 1
         best_name = max(name_votes, key=name_votes.get) if name_votes else "Unknown"
@@ -286,8 +307,17 @@ class FaceService:
         avg_name, avg_emb_score = self._db.match(avg_emb)
         avg_emb_score = float(avg_emb_score)
 
-        final_score = max(avg_score, avg_emb_score)
-        final_name = avg_name if avg_emb_score > avg_score else best_name
+        # Weighted average thay vì max() — tránh inflate score
+        # Voting score (per-frame) đáng tin cậy hơn → 70%
+        # Average embedding score bị triệt nhiễu nên cao hơn thực tế → 30%
+        final_score = avg_score * 0.7 + avg_emb_score * 0.3
+        
+        # avg_name chỉ được override khi CÙNG TÊN với majority voting
+        # Tránh trường hợp avg embedding match sang tên khác → nhận sai
+        if avg_emb_score > avg_score and avg_name == best_name:
+            final_name = avg_name
+        else:
+            final_name = best_name
         
         # --- DYNAMIC THRESHOLD LOGIC ---
         # Tính quality trung bình của tất cả valid frames
@@ -307,14 +337,15 @@ class FaceService:
         if avg_q_score < 0.65:
             if has_blink:
                 applied_threshold = THRESHOLD_ACCEPT_LOW_QUALITY
-                dynamic_reason = "Low Quality + Blink OK (Threshold=0.58)"
+                dynamic_reason = "Low Quality + Blink OK (Threshold=0.63)"
             else:
                 applied_threshold = THRESHOLD_ACCEPT_HIGH_QUALITY
-                dynamic_reason = "Low Quality + No Blink (Threshold=0.62) -> Needs Blink"
+                dynamic_reason = "Low Quality + No Blink (Threshold=0.67) -> Needs Blink"
         else:
-            dynamic_reason = "High Quality (Threshold=0.62)"
+            dynamic_reason = "High Quality (Threshold=0.67)"
 
-        final_accepted = final_score >= applied_threshold
+        # Bắt buộc rớt nếu kết quả là Unknown
+        final_accepted = (final_score >= applied_threshold) and (final_name != "Unknown")
 
         # --- KIỂM DUYỆT LIVENESS TỔNG THỂ ---
         # Ngăn chặn trường hợp 5 khung hình đưa điện thoại vào, 
@@ -329,7 +360,7 @@ class FaceService:
         if final_accepted:
             self._db.log_attendance(final_name, final_score)
 
-        elapsed = time.time() - (time.time())  # placeholder
+        elapsed = time.time() - t_start
         logger.info(f"MULTI-FRAME: {len(valid_scores)}/{len(images_bgr)} valid | "
                      f"{final_name} score={final_score:.4f} throbj={applied_threshold:.2f} "
                      f"[{dynamic_reason}] {'ACCEPTED' if final_accepted else 'REJECTED'}")
@@ -351,7 +382,7 @@ class FaceService:
             "per_frame_scores": [round(s, 4) for s in valid_scores],
             "frame_details": frame_results,
             "method": "multi_frame_voting",
-            "time_seconds": "N/A"
+            "time_seconds": round(elapsed, 3)
         }
 
     # ==================== ENROLLMENT ====================
@@ -461,7 +492,7 @@ class FaceService:
         from config import TTA_ENABLED, THRESHOLD
         users = self._db.get_users()
         return {
-            "version": "5.2",
+            "version": "5.6",
             "device": self._recognizer.device,
             "tta_enabled": TTA_ENABLED,
             "threshold": THRESHOLD,

@@ -14,11 +14,12 @@ DB_DIR = os.path.join(ROOT_DIR, "db")
 DATA_DIR = os.path.join(ROOT_DIR, "data", "enroll")
 RECORDS_DIR = os.path.join(ROOT_DIR, "recordings")
 
-# Model ArcFace — DÙNG MODEL V4 MỚI TRAIN
-# Model V4 đã được luyện thành công với Anti-Collapse (freeze backbone, cosin annealing)
-ARCFACE_PATH = os.path.join(MODELS_DIR, "arcface_best_model_v4.onnx")
 # Model pretrained (dự phòng)
 ARCFACE_PATH_PRETRAINED = os.path.join(os.path.expanduser("~"), ".insightface", "models", "buffalo_l", "w600k_r50.onnx")
+
+# Dùng Model Pretrained chuẩn thế giới trong lúc đợi V5. 
+# Gắn thẳng ARCFACE_PATH vào Model w600k_r50.onnx mặc định!
+ARCFACE_PATH = ARCFACE_PATH_PRETRAINED
 FL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
 FL_PATH = os.path.join(MODELS_DIR, "face_landmarker.task")
 
@@ -58,14 +59,14 @@ POSE_UP_MAX = 0.30
 POSE_DOWN_MIN = 0.65
 
 # === RECOGNITION — ƯU TIÊN 1: Decision Logic ===
-# --- DYNAMIC THRESHOLD (Ngưỡng động) thay vì Ngưỡng cứng ---
-# Nếu ảnh cực nét, ánh sáng tốt: Giữ ngưỡng 0.62.
-# Nếu ảnh mờ hoặc thiếu sáng: Tự động hạ ngưỡng xuống 0.58, nhưng bù lại cần kiểm tra thêm nháy mắt.
-THRESHOLD_ACCEPT_HIGH_QUALITY = 0.62  # Chất lượng cao
-THRESHOLD_ACCEPT_LOW_QUALITY = 0.58   # Chất lượng thấp + yêu cầu blink
-THRESHOLD_REJECT = 0.40               # Dưới mức này → REJECT chắc chắn
+# --- DYNAMIC THRESHOLD (Ngưỡng động theo Benchmark Vàng của Pretrained) ---
+# Theo đồ thị, Imposter max là ~0.20, Genuine min là ~0.30. Optimal = 0.23.
+# Để an toàn cho Camera (Chống False Accept tuyệt đối), ta nhích nhẹ lên mức 0.30 - 0.35
+THRESHOLD_ACCEPT_HIGH_QUALITY = 0.38  # Ngưỡng an toàn bảo mật cao (Bỏ 0.67 cũ)
+THRESHOLD_ACCEPT_LOW_QUALITY = 0.34   # Chấp nhận mờ/thấp nhưng yêu cầu nháy mắt 
+THRESHOLD_REJECT = 0.25               # Dưới 0.25 Cảnh báo Đỏ (Unknown)
 # Giữa REJECT < score < ACCEPT → trạng thái UNCERTAIN, cần thêm frame
-THRESHOLD = 0.62          # Giữ lại không đổi API cũ
+THRESHOLD = 0.38          # Giữ lại không đổi API cũ
 THRESHOLD_ACCEPT = THRESHOLD_ACCEPT_HIGH_QUALITY # Backward compatibility
 
 TOP_K = 3                 # faiss search top-K group by user
@@ -73,7 +74,7 @@ TTA_ENABLED = True        # Test-Time Augmentation (flip horizontal)
 
 # === OUTLIER REMOVAL (Điểm 6: Cosine-to-Centroid thay vì chỉ std) ===
 OUTLIER_STD = 2.0                    # Ngưỡng std cũ (fallback)
-OUTLIER_COSINE_MIN = 0.72            # Cosine tối thiểu so với centroid (tăng từ 0.65 → DB sạch hơn)
+OUTLIER_COSINE_MIN = 0.45            # Hạ xuống 0.45 để phù hợp với đồ thị Cosine của Model Pretrained (Genuine min ~ 0.3)
 OUTLIER_METHOD = "cosine_centroid"   # "std" hoặc "cosine_centroid"
 
 # === MULTI-FRAME VOTING (Điểm 3: Quality-Weighted thay vì Avg đều tay) ===

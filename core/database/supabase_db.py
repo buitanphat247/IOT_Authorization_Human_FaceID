@@ -327,7 +327,7 @@ class SupabaseDatabase:
         """Find best matching user via dual-strategy matching.
         Delegates to shared MatchingEngine (BUG-09 fix).
         """
-        from matching import MatchingEngine
+        from models.matching import MatchingEngine
         from config import PROTOTYPE_ENABLED, PROTOTYPE_WEIGHT
         
         engine = MatchingEngine(
