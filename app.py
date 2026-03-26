@@ -28,7 +28,7 @@ load_dotenv(os.path.join(base_dir, '.env'))
 
 from config import *
 from logger import get_logger
-from models.detector import FaceDetector
+from models.hybrid_detector import create_detector
 from models.recognizer import FaceRecognizer
 from metrics import metrics, metrics_endpoint
 
@@ -57,7 +57,7 @@ def get_service():
     if _service is None:
         from service import FaceService
         
-        detector = FaceDetector(mode="image", num_faces=1)
+        detector = create_detector(mode="image", num_faces=1)
         recognizer = FaceRecognizer()
         
         # Select database backend based on config
@@ -440,7 +440,7 @@ def handle_enroll_check_face(data):
         in_oval = face.in_oval(w, h)
 
         # Check quality
-        score, quality_ok, reason = face.quality_check(img)
+        score, quality_ok, reason = svc.assess_quality(face, img)
 
         # Check distance
         dist_ok, dist_msg = face.distance_check(w)

@@ -1092,14 +1092,17 @@
         
         if (data.success) {
           if (data.recognized) {
-            handleRealtimeResult({ success: true, status: 'accepted', name: data.name });
+            data.status = 'accepted';
+            handleRealtimeResult(data);
           } else {
             if (data.frame_details && data.frame_details.some(d => d.status === 'spoof_failed')) {
-              handleRealtimeResult({ success: true, status: 'spoof', name: '' });
+              data.status = 'spoof';
+              handleRealtimeResult(data);
             } else if (data.frames_valid === 0) {
               resultsDiv.innerHTML = `<div class="text-center py-10 text-amber-400"><p class="text-2xl mb-2">😕</p><p class="text-sm">Không tìm thấy rõ khuôn mặt</p></div>`;
             } else {
-              handleRealtimeResult({ success: true, status: 'rejected', name: '' });
+              data.status = 'rejected';
+              handleRealtimeResult(data);
             }
           }
         } else {
@@ -1132,47 +1135,188 @@
       if (data.status === 'accepted' && data.name !== 'Unknown') {
         meshLabelName = data.name;
         meshLabelAccepted = true;
+        
+        let statsHtml = '';
+        let frameDetailsHtml = '';
+
+        if (data.score) {
+          statsHtml = `
+            <div class="w-full mt-4 pt-4 border-t border-emerald-500/20">
+              <div class="grid grid-cols-2 gap-3">
+                <div class="bg-emerald-500/10 rounded-xl p-3 text-center shadow-inner border border-emerald-500/10">
+                  <p class="text-[10px] text-emerald-500/80 uppercase tracking-widest font-semibold mb-1">Độ Trùng Khớp</p>
+                  <p class="text-2xl font-black text-emerald-400">${data.score.toFixed(4)}</p>
+                  <p class="text-[9px] mt-1 text-emerald-500/50">Cosine Similarity</p>
+                </div>
+                <div class="bg-emerald-500/10 rounded-xl p-3 text-center shadow-inner border border-emerald-500/10">
+                  <p class="text-[10px] text-emerald-500/80 uppercase tracking-widest font-semibold mb-1">Ngưỡng Threshold</p>
+                  <p class="text-2xl font-black text-emerald-400">${data.dynamic_threshold || '--'}</p>
+                  <p class="text-[9px] mt-1 text-emerald-500/50">Yêu cầu tối thiểu</p>
+                </div>
+              </div>
+              <div class="mt-3 text-center text-[11px] text-emerald-400/80 bg-emerald-500/10 rounded-lg p-2.5 border border-emerald-500/20 font-medium flex items-center justify-center gap-1.5">
+                <span>🤖</span> ${data.dynamic_reason || 'Multi-frame voting'}
+              </div>
+            </div>`;
+        }
+
+        if (data.frame_details && data.frame_details.length > 0) {
+          frameDetailsHtml = `<div class="mt-4 pt-4 border-t border-emerald-500/20">
+            <p class="text-[10px] text-emerald-500/80 uppercase tracking-widest font-semibold mb-2 text-center">Chi Tiết ${data.frames_valid || 0}/${data.frames_total || 5} Khung Hình</p>
+            <div class="space-y-1.5">`;
+          data.frame_details.forEach(f => {
+            if (f.status === 'ok') {
+              const bestMatch = (f.name === data.name);
+              frameDetailsHtml += `
+                <div class="flex items-center justify-between px-3 py-1.5 bg-emerald-500/10 rounded-lg text-xs border border-emerald-500/10">
+                  <span class="text-emerald-500/70 font-medium tracking-wide">FRAME ${f.frame + 1}</span>
+                  <div class="flex items-center gap-3">
+                    <span class="font-mono text-emerald-400 font-semibold">${f.score.toFixed(4)}</span>
+                    <span class="${bestMatch ? 'text-emerald-500 font-semibold' : 'text-emerald-500/40'} truncate w-20 text-right">${f.name}</span>
+                  </div>
+                </div>`;
+            } else {
+              let reason = f.status === 'quality_failed' ? `Quality: ${f.reason}` : 
+                           f.status === 'spoof_failed' ? `Spoof Failed` : f.status;
+              frameDetailsHtml += `
+                <div class="flex items-center justify-between px-3 py-1.5 bg-dark-500/30 rounded-lg text-xs border border-white/5 opacity-70 hover:opacity-100 transition-opacity">
+                  <span class="text-gray-500 tracking-wide font-medium">FRAME ${f.frame + 1}</span>
+                  <span class="text-amber-500/80 font-medium truncate max-w-[120px] text-right" title="${reason}">${reason}</span>
+                </div>`;
+            }
+          });
+          frameDetailsHtml += `</div></div>`;
+        }
+
         resultsDiv.innerHTML = `
-          <div class="flex items-center gap-5 p-5 bg-emerald-500/5 border border-emerald-500/30 rounded-2xl animate-slide-up">
-            <div class="w-16 h-16 rounded-full bg-emerald-500/20 border-emerald-500 border-2 flex items-center justify-center text-2xl flex-shrink-0 animate-pulse">
-              ✅
+          <div class="flex flex-col gap-2 p-5 bg-emerald-500/5 border border-emerald-500/30 rounded-2xl animate-slide-up">
+            <div class="flex items-center gap-4">
+              <div class="w-16 h-16 rounded-full bg-emerald-500/20 border-emerald-500 border-2 flex items-center justify-center text-2xl flex-shrink-0 animate-pulse">
+                ✅
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-2xl font-extrabold text-emerald-400 capitalize tracking-wide">${data.name}</p>
+                <p class="text-xs font-semibold mt-1 text-emerald-500">
+                  ✓ ACCEPTED — Đã nhận diện thành công
+                </p>
+              </div>
             </div>
-            <div class="flex-1 min-w-0">
-              <p class="text-xl font-bold text-emerald-400">${data.name}</p>
-              <p class="text-[11px] font-medium mt-1 text-emerald-500">
-                ✓ ACCEPTED — Đã nhận diện thành công
-              </p>
-            </div>
+            ${statsHtml}
+            ${frameDetailsHtml}
           </div>`;
       } else if (data.status === 'spoof') {
         meshLabelName = 'SPOOF';
         meshLabelAccepted = false;
+        
+        let frameDetailsHtml = '';
+        if (data.frame_details && data.frame_details.length > 0) {
+          frameDetailsHtml = `<div class="mt-4 pt-4 border-t border-red-500/20">
+            <p class="text-[10px] text-red-500/80 uppercase tracking-widest font-semibold mb-2 text-center">Chi Tiết ${data.frames_total || 5} Khung Hình</p>
+            <div class="space-y-1.5">`;
+          data.frame_details.forEach(f => {
+            if (f.status === 'spoof_failed') {
+              frameDetailsHtml += `
+                <div class="flex items-center justify-between px-3 py-1.5 bg-red-500/20 rounded-lg text-xs border border-red-500/30 shadow-inner">
+                  <span class="text-red-400/80 tracking-wide font-medium">FRAME ${f.frame + 1}</span>
+                  <span class="text-red-400 font-bold">Fake / Spoofing</span>
+                </div>`;
+            } else if (f.status === 'ok') {
+               frameDetailsHtml += `
+                <div class="flex items-center justify-between px-3 py-1.5 bg-red-500/5 rounded-lg text-xs border border-red-500/10">
+                  <span class="text-red-400/60 font-medium tracking-wide">FRAME ${f.frame + 1}</span>
+                  <span class="font-mono text-red-400/60 font-semibold">${f.score.toFixed(4)}</span>
+                </div>`;
+            } else {
+              let reason = f.status === 'quality_failed' ? `Quality: ${f.reason}` : f.status;
+              frameDetailsHtml += `
+                <div class="flex items-center justify-between px-3 py-1.5 bg-dark-500/30 rounded-lg text-xs border border-white/5 opacity-70">
+                  <span class="text-gray-500 tracking-wide font-medium">FRAME ${f.frame + 1}</span>
+                  <span class="text-amber-500/80 font-medium truncate max-w-[120px] text-right">${reason}</span>
+                </div>`;
+            }
+          });
+          frameDetailsHtml += `</div></div>`;
+        }
+
         resultsDiv.innerHTML = `
-          <div class="flex items-center gap-5 p-5 bg-red-500/5 border border-red-500/30 rounded-2xl animate-slide-up">
-            <div class="w-16 h-16 rounded-full bg-red-500/20 border-red-500 border-2 flex items-center justify-center text-2xl flex-shrink-0">
-              📵
+          <div class="flex flex-col p-5 bg-red-500/5 border border-red-500/30 rounded-2xl animate-slide-up">
+            <div class="flex items-center gap-4">
+              <div class="w-16 h-16 rounded-full bg-red-500/20 border-red-500 border-2 flex items-center justify-center text-2xl flex-shrink-0">
+                📵
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-xl font-bold text-red-500">Ảnh giả mạo</p>
+                <p class="text-xs font-semibold mt-1 text-red-400">
+                  ✗ REJECTED — Phát hiện tấn công lừa đảo
+                </p>
+              </div>
             </div>
-            <div class="flex-1 min-w-0">
-              <p class="text-xl font-bold text-red-400">Ảnh giả mạo</p>
-              <p class="text-[11px] font-medium mt-1 text-red-400">
-                ✗ REJECTED — Phát hiện màn hình / giấy in
-              </p>
-            </div>
+            ${frameDetailsHtml}
           </div>`;
       } else if (data.status === 'rejected' || data.name === 'Unknown') {
         meshLabelName = '';
         meshLabelAccepted = false;
+        
+        let statsHtml = '';
+        let frameDetailsHtml = '';
+
+        if (data.score) {
+          statsHtml = `
+            <div class="w-full mt-4 pt-4 border-t border-red-500/20">
+              <div class="grid grid-cols-2 gap-3">
+                <div class="bg-red-500/10 rounded-xl p-3 text-center border border-red-500/10 shadow-inner">
+                  <p class="text-[10px] text-red-400/80 uppercase tracking-widest font-semibold mb-1">Max Score</p>
+                  <p class="text-2xl font-black text-red-400">${data.score.toFixed(4)}</p>
+                </div>
+                <div class="bg-red-500/10 rounded-xl p-3 text-center border border-red-500/10 shadow-inner">
+                  <p class="text-[10px] text-red-400/80 uppercase tracking-widest font-semibold mb-1">Yêu Cầu</p>
+                  <p class="text-2xl font-black text-red-400">${data.dynamic_threshold || '--'}</p>
+                </div>
+              </div>
+            </div>`;
+        }
+        
+        if (data.frame_details && data.frame_details.length > 0) {
+          frameDetailsHtml = `<div class="mt-4 pt-4 border-t border-red-500/20">
+            <p class="text-[10px] text-red-400/80 uppercase tracking-widest font-semibold mb-2 text-center">Chi Tiết ${data.frames_valid || 0}/${data.frames_total || 5} Khung Hình</p>
+            <div class="space-y-1.5">`;
+          data.frame_details.forEach(f => {
+            if (f.status === 'ok') {
+              frameDetailsHtml += `
+                <div class="flex items-center justify-between px-3 py-1.5 bg-red-500/10 rounded-lg text-xs border border-red-500/20">
+                  <span class="text-red-400/80 font-medium tracking-wide">FRAME ${f.frame + 1}</span>
+                  <div class="flex items-center gap-3">
+                    <span class="font-mono text-red-500 font-semibold">${f.score.toFixed(4)}</span>
+                    <span class="text-red-400/50 truncate w-20 text-right">${f.name}</span>
+                  </div>
+                </div>`;
+            } else {
+              let reason = f.status === 'quality_failed' ? `Quality: ${f.reason}` : f.status;
+              frameDetailsHtml += `
+                <div class="flex items-center justify-between px-3 py-1.5 bg-dark-500/30 rounded-lg text-xs border border-white/5 opacity-70">
+                  <span class="text-gray-500 tracking-wide font-medium">FRAME ${f.frame + 1}</span>
+                  <span class="text-amber-500/80 font-medium truncate max-w-[120px] text-right">${reason}</span>
+                </div>`;
+            }
+          });
+          frameDetailsHtml += `</div></div>`;
+        }
+
         resultsDiv.innerHTML = `
-          <div class="flex items-center gap-5 p-5 bg-red-500/5 border border-red-500/30 rounded-2xl animate-slide-up">
-            <div class="w-16 h-16 rounded-full bg-red-500/20 border-red-500 border-2 flex items-center justify-center text-2xl flex-shrink-0">
-              ❌
+          <div class="flex flex-col p-5 bg-red-500/5 border border-red-500/30 rounded-2xl animate-slide-up">
+            <div class="flex items-center gap-4">
+              <div class="w-16 h-16 rounded-full bg-red-500/20 border-red-500 border-2 flex items-center justify-center text-2xl flex-shrink-0">
+                ❌
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-xl font-bold text-red-500">Thuộc tính chưa xác minh</p>
+                <p class="text-xs font-semibold mt-1 text-red-400">
+                  ✗ REJECTED — Nhận diện không thành công
+                </p>
+              </div>
             </div>
-            <div class="flex-1 min-w-0">
-              <p class="text-xl font-bold text-red-400">Không xác định</p>
-              <p class="text-[11px] font-medium mt-1 text-red-400">
-                ✗ REJECTED — Không nhận diện được
-              </p>
-            </div>
+            ${statsHtml}
+            ${frameDetailsHtml}
           </div>`;
       } else if (data.status === 'no_face') {
         meshLabelName = '';

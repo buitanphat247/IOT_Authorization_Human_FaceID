@@ -328,12 +328,19 @@ class SupabaseDatabase:
         Delegates to shared MatchingEngine (BUG-09 fix).
         """
         from models.matching import MatchingEngine
-        from config import PROTOTYPE_ENABLED, PROTOTYPE_WEIGHT
+        from config import (PROTOTYPE_ENABLED, PROTOTYPE_WEIGHT,
+                          PROTOTYPE_MODE, PROTOTYPE_REJECT_THRESHOLD,
+                          THRESHOLD_REJECT, COHORT_ENABLED, COHORT_Z_THRESHOLD)
         
         engine = MatchingEngine(
             top_k=TOP_K,
             proto_weight=PROTOTYPE_WEIGHT,
-            proto_enabled=PROTOTYPE_ENABLED
+            proto_enabled=PROTOTYPE_ENABLED,
+            proto_mode=PROTOTYPE_MODE,
+            proto_reject_threshold=PROTOTYPE_REJECT_THRESHOLD,
+            unknown_threshold=THRESHOLD_REJECT,
+            cohort_enabled=COHORT_ENABLED,
+            cohort_z_threshold=COHORT_Z_THRESHOLD
         )
         
         def id_to_name_fn(valid_ids):

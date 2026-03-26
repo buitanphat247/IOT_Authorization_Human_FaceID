@@ -9,3 +9,5 @@ flask-socketio>=5.3.0
 supabase>=2.0.0
 python-dotenv>=1.0.0
 prometheus-client>=0.20.0
+insightface>=0.7.0
+scipy>=1.10.0

@@ -30,8 +30,68 @@ class FaceService:
         self._detect_lock = threading.Lock()
         self._recog_lock = threading.Lock()
         self._match_lock = threading.Lock()
+        
+        # ByteTrack Tracker (thay Centroid Tracker)
+        self._tracker = None
+        try:
+            from config import (TRACKER_ENABLED, TRACKER_MAX_LOST, 
+                              TRACKER_IOU_THRESHOLD, TRACKER_HIGH_THRESH, TRACKER_MIN_HITS)
+            if TRACKER_ENABLED:
+                from models.tracker import ByteTracker
+                self._tracker = ByteTracker(
+                    max_lost=TRACKER_MAX_LOST,
+                    iou_threshold=TRACKER_IOU_THRESHOLD,
+                    high_thresh=TRACKER_HIGH_THRESH,
+                    min_hits=TRACKER_MIN_HITS
+                )
+                logger.info("ByteTracker initialized (replacing Centroid Tracker)")
+        except Exception as e:
+            logger.warning(f"ByteTracker init failed: {e}. Using Centroid Tracker.")
+        
+        # Face Quality Assessor (thay rule-based)
+        self._quality_assessor = None
+        try:
+            from models.quality import FaceQualityAssessor
+            self._quality_assessor = FaceQualityAssessor()
+            logger.info("FaceQualityAssessor initialized (Multi-Signal Scorer)")
+        except Exception as e:
+            logger.warning(f"FaceQualityAssessor init failed: {e}. Using rule-based quality.")
+        
         logger.info("FaceService initialized")
 
+    # ==================== QUALITY ASSESSMENT ====================
+
+    def assess_quality(self, face, img_bgr):
+        """Assess face quality using Multi-Signal Scorer (với 6DoF Pose).
+        
+        Returns (score, q_ok, q_reason) tương thích ngược với API cũ.
+        """
+        if self._quality_assessor is not None:
+            # 1. Trích xuất ROI an toàn
+            x, y, w, h = face.bbox
+            fh, fw = img_bgr.shape[:2]
+            y_start, y_end = max(0, y), min(fh, y + h)
+            x_start, x_end = max(0, x), min(fw, x + w)
+            face_roi_bgr = img_bgr[y_start:y_end, x_start:x_end]
+
+            # 2. Gọi Multi-Signal Scorer (FaceQualityAssessor)
+            score, details = self._quality_assessor.assess(
+                face_roi_bgr=face_roi_bgr,
+                landmarks_5pt=face.lm5,
+                full_frame=img_bgr,
+                bbox=face.bbox,
+                lm2d=face.lm2d,  # Truyền lm2d để kích hoạt 6DoF Pose (solvePnP)
+                img_w=fw,
+                img_h=fh
+            )
+
+            # 3. Phân loại theo ngưỡng mới
+            q_ok = self._quality_assessor.is_recognition_quality(score)
+            q_reason = "OK" if q_ok else details['feedback']
+            return score, q_ok, q_reason
+        
+        # Fallback: simple heuristic quality check
+        return face.quality_check(img_bgr)
     # ==================== DETECTION ====================
 
     def detect_faces(self, img_bgr, tracking_state=None):
@@ -47,6 +107,29 @@ class FaceService:
         """Get the face closest to center."""
         from models.detector import get_center_face
         return get_center_face(faces, frame_w, frame_h)
+
+    def track_faces(self, faces):
+        """Update ByteTracker with detected faces.
+        
+        Args:
+            faces: list of FaceData objects from detect_faces()
+            
+        Returns:
+            list of Track objects with .track_id, .bbox, .recognized_name
+            Returns None if tracker not enabled (use centroid tracking)
+        """
+        if self._tracker is None:
+            return None
+        
+        # Convert FaceData to detections: (x, y, w, h, confidence)
+        detections = []
+        for face in faces:
+            x, y, w, h = face.bbox
+            # Use det_score if available (SCRFD), else quality proxy
+            conf = getattr(face, 'det_score', 0.9)
+            detections.append((x, y, w, h, conf))
+        
+        return self._tracker.update(detections)
 
     # ==================== REALTIME RECOGNITION (SocketIO optimized) ====================
 
@@ -75,7 +158,7 @@ class FaceService:
                 "status": "no_face"
             }
         
-        q_score, q_ok, q_reason = face.quality_check(img_bgr)
+        q_score, q_ok, q_reason = self.assess_quality(face, img_bgr)
         
         # Reject khi quality quá tệ — bao gồm mờ, tối, nghiêng, rung
         # Không chỉ "Nho"/"Rong", mà bất kỳ failure nào có score < 0.3
@@ -156,7 +239,7 @@ class FaceService:
                 "results": []
             }
 
-        q_score, ok, reason = face.quality_check(img_bgr)
+        q_score, ok, reason = self.assess_quality(face, img_bgr)
         
         # --- Liveness Detection (Anti-Spoofing) ---
         if ok and self._spoofer:
@@ -232,7 +315,7 @@ class FaceService:
             if face is None:
                 return {"frame": i, "status": "no_face", "faces": len(faces)}, None, None
 
-            q_score, q_ok, q_reason = face.quality_check(img)
+            q_score, q_ok, q_reason = self.assess_quality(face, img)
             left_ear, right_ear, avg_ear = face.eye_openness()
 
             hard_reject_reasons = {"Nho", "Rong"}
@@ -412,7 +495,7 @@ class FaceService:
                 continue
 
             face = faces[0]
-            q_score, ok, reason = face.quality_check(img)
+            q_score, ok, reason = self.assess_quality(face, img)
             if not ok:
                 skipped += 1
                 continue

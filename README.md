@@ -1,6 +1,6 @@
 # 🧠 FaceID System — Hệ Thống Nhận Diện & Điểm Danh Khuôn Mặt
 
-> **Phiên bản:** v5.5 · **Cập nhật:** 23/03/2026  
+> **Phiên bản:** v5.12 · **Cập nhật:** 26/03/2026  
 > **Stack:** Python · Flask · SocketIO · MediaPipe · ArcFace · FAISS · Supabase
 
 Hệ thống nhận diện khuôn mặt thời gian thực (real-time) với khả năng đăng ký (enrollment), nhận diện (recognition), chống giả mạo (anti-spoofing), và điểm danh tự động. Hỗ trợ cả giao diện Web (browser) lẫn Desktop (OpenCV).
@@ -307,6 +307,44 @@ sequenceDiagram
     API-->>B: JSON response
 ```
 
+### 4. Quyết Định Kết Quả Nhận Diện (Decision Logic Flowchart)
+
+Đây là quy trình ra quyết định cấp quyền / từ chối người dùng dựa vào chất lượng môi trường và điểm số. Chi tiết logic đọc tại 📄 **[RECOGNITION_LOGIC.md](docs/RECOGNITION_LOGIC.md)**.
+
+```mermaid
+graph TD
+    Start((Bắt Đầu)) --> CheckSpoof{Tỉ lệ khung hình<br>Fake >= 40%?}
+    CheckSpoof -- Có --> Spoof[📵 BÁO ĐỘNG GỈA MẠO<br>Trạng thái: SPOOF]
+    CheckSpoof -- Không --> RawScore{Raw Score < 0.25?}
+    
+    RawScore -- Đúng --> Under25[❌ Trạng thái: UNKNOWN<br>Bị Cấm Hoàn Toàn]
+    RawScore -- Sai (>= 0.25) --> QualityCheck{Chất lượng Ảnh<br>Trung Bình (q_score)?}
+    
+    QualityCheck -- Cao (Rõ, Sáng) --> T38[Áp dụng Threshold: 0.38]
+    QualityCheck -- Thấp (Mờ, Tối) --> CheckBlink{Có chớp mắt<br>trong 5 khung hình?}
+    
+    CheckBlink -- Có --> T34[Áp dụng Threshold: 0.34<br>Yêu cầu Chớp Mắt Pass]
+    CheckBlink -- Không --> T38B[Ép áp dụng Threshold: 0.38<br>Vì không chứng minh liveness]
+    
+    T38 --> FinalEval{Score >= Threshold?}
+    T34 --> FinalEval
+    T38B --> FinalEval
+    
+    FinalEval -- Đạt --> Cohort{Z-Score Kiểm Tra<br>Mode Collapse}
+    FinalEval -- Không Đạt --> FailMatch[❌ Trạng thái: UNKNOWN<br>Không Đạt Ngưỡng]
+    
+    Cohort -- Quá phổ biến --> FailMatch
+    Cohort -- Độc nhất minh bạch --> Accept[✅ Trạng thái: ACCEPTED<br>Lưu lịch sử thành công]
+    
+    classDef reject fill:#3f1a1a,stroke:#e63946,stroke-width:2px,color:#fff;
+    classDef accept fill:#132a13,stroke:#2a9d8f,stroke-width:2px,color:#fff;
+    classDef warning fill:#4a3b10,stroke:#e9c46a,stroke-width:2px,color:#fff;
+    
+    class Spoof,Under25,FailMatch reject;
+    class Accept accept;
+    class CheckBlink,Cohort warning;
+```
+
 ---
 
 ## 📁 Cấu Trúc Dự Án
@@ -504,6 +542,9 @@ Hệ thống Core Backend phân tích Nhận Diện được trang bị Mô hìn
 
 | Version | Ngày | Nội dung |
 |---|---|---|
+| **v5.12** | 26/03/2026 | Thread-safe classes, SCRFD chin fix, Detailed UI Metrics, Anti-Spoof Benchmarks |
+| **v5.11** | 25/03/2026 | ByteTrack tracking integration, Cohort Z-Score Normalization |
+| **v5.10** | 24/03/2026 | Head Pose 6DoF, Anti-Spoof MiniFASNet v2 rollout |
 | **v5.5** | 23/03/2026 | SocketIO realtime, FaceMesh enrollment + oval guide |
 | **v5.4** | 21/03/2026 | Dynamic threshold, blink gating, ArcFace v4 |
 | **v5.3** | 20/03/2026 | Anti-false-accept, EMA tuning, batch embedding |

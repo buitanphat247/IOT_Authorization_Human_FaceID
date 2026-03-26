@@ -17,9 +17,54 @@ RECORDS_DIR = os.path.join(ROOT_DIR, "recordings")
 # Model pretrained (dự phòng)
 ARCFACE_PATH_PRETRAINED = os.path.join(os.path.expanduser("~"), ".insightface", "models", "buffalo_l", "w600k_r50.onnx")
 
-# Dùng Model Pretrained chuẩn thế giới trong lúc đợi V5. 
-# Gắn thẳng ARCFACE_PATH vào Model w600k_r50.onnx mặc định!
-ARCFACE_PATH = ARCFACE_PATH_PRETRAINED
+# === HOT-SWAP MODEL (Tự động chọn model tốt nhất có sẵn) ===
+# Ưu tiên: V5 fine-tuned > V4 > Pretrained w600k_r50
+# Chỉ cần drop file .onnx vào thư mục models/ là hệ thống tự nhận!
+_MODEL_PRIORITY = [
+    os.path.join(MODELS_DIR, "arcface_best_model_v5.onnx"),   # V5 (đang train)
+    os.path.join(MODELS_DIR, "arcface_best_model_v4.onnx"),   # V4 (mode collapse, backup)
+    ARCFACE_PATH_PRETRAINED,                                   # Pretrained (mặc định)
+]
+
+ARCFACE_PATH = None
+for _candidate in _MODEL_PRIORITY:
+    if os.path.exists(_candidate):
+        ARCFACE_PATH = _candidate
+        break
+
+if ARCFACE_PATH is None:
+    ARCFACE_PATH = ARCFACE_PATH_PRETRAINED  # Fallback cuối cùng
+
+# Log model đang dùng
+import sys
+_model_name = os.path.basename(ARCFACE_PATH)
+if "v5" in _model_name:
+    print(f"[CONFIG] 🌟 ArcFace Model: {_model_name} (V5 Fine-tuned)")
+elif "v4" in _model_name:
+    print(f"[CONFIG] ⚠️ ArcFace Model: {_model_name} (V4 - Mode Collapse risk)")
+else:
+    print(f"[CONFIG] ✅ ArcFace Model: {_model_name} (Pretrained w600k_r50)")
+
+# === FACE DETECTOR BACKEND ===
+# "scrfd"    : SCRFD (chính xác, tốt cho recognition) — CẦN insightface
+# "mediapipe": MediaPipe FaceLandmarker (nhẹ, nhanh) — hiện tại
+# "hybrid"   : SCRFD primary + MediaPipe fallback khi SCRFD fail
+DETECTOR_BACKEND = "hybrid"
+
+# SCRFD Config
+SCRFD_MODEL = "buffalo_l"           # buffalo_l (tốt nhất) hoặc buffalo_sc (nhẹ nhất)
+SCRFD_CTX_ID = -1                   # -1 = CPU, 0 = GPU
+SCRFD_DET_SIZE = (640, 640)         # Detection input size
+SCRFD_DET_THRESH = 0.5              # Detection confidence threshold
+
+# === BYTETRACK TRACKER (Thay Centroid Tracker) ===
+# Giữ ID ổn định khi nhiều người qua lại, re-ID khi mặt tạm mất
+TRACKER_ENABLED = True              # True = ByteTrack, False = Centroid cũ
+TRACKER_MAX_LOST = 30               # Số frame giữ track khi mất mặt (~1s @ 30fps)
+TRACKER_IOU_THRESHOLD = 0.3         # IoU tối thiểu để match track-detection
+TRACKER_HIGH_THRESH = 0.5           # Confidence cao cho Stage 1
+TRACKER_MIN_HITS = 3                # Số frame tối thiểu để confirm track
+
 FL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
 FL_PATH = os.path.join(MODELS_DIR, "face_landmarker.task")
 
@@ -83,9 +128,19 @@ MULTI_FRAME_BUFFER = 7              # Tăng buffer lên 7 frame
 MULTI_FRAME_TOP_N = 5               # Chỉ lấy top-5 frame tốt nhất trong buffer
 MULTI_FRAME_WEIGHTED = True          # Bật quality-weighted voting
 
-# === PROTOTYPE MATCHING (Điểm 4: Lưu vector đại diện cho mỗi user) ===
-PROTOTYPE_ENABLED = False            # TẮT — prototype inflate score, gây False Accept
-PROTOTYPE_WEIGHT = 0.4               # Giảm trọng số (chỉ dùng khi enable lại)
+# === PROTOTYPE MATCHING (Cải tiến: Cascaded Rejection — chỉ có quyền CHẶN) ===
+# Prototype = vector trung bình của mỗi user. 
+# FAISS nhanh (nhưng có thể nhầm due to noise point) → Prototype verify lại.
+PROTOTYPE_ENABLED = True
+PROTOTYPE_WEIGHT = 0.4
+PROTOTYPE_MODE = "reject_only"       # MỚI v5.4: Chỉ được quyền CHẶN
+PROTOTYPE_REJECT_THRESHOLD = 0.20    # Prototype cosine < 0.20 → CHẶN (ngưỡng thấp, an toàn)
+
+# === COHORT NORMALIZATION (Ngừa Model Sụp Đổ) ===
+# Khắc phục hiện tượng 1 khuôn mặt "quá chung chung" match bậy với tất cả mọi người.
+# Tính Z-Score so với top-N kẻ mạo danh gần nhất.
+COHORT_ENABLED = True
+COHORT_Z_THRESHOLD = 2.0             # Z-score < 2.0 (thuộc về đám đông) → CHẶN
 
 # === 3-STATE OUTPUT (Điểm 9: accepted / unknown / low_quality) ===
 THREE_STATE_ENABLED = True
