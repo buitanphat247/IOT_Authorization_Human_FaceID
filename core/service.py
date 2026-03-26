@@ -478,40 +478,49 @@ class FaceService:
         """
         from config import ENROLL_KEEP_TOP
 
+        import concurrent.futures
+
         embeddings = []
         scores = []
         processed = 0
         skipped = 0
-        tracking_state = {}
 
-        for img in images_bgr:
+        def _process_enroll_frame(img):
             if img is None:
-                skipped += 1
-                continue
+                return None
 
-            faces = self.detect_faces(img, tracking_state=tracking_state)
+            # Mỗi frame được treat độc lập, tracking state riêng biệt
+            faces = self.detect_faces(img, tracking_state=None)
             if len(faces) != 1:
-                skipped += 1
-                continue
+                return None
 
             face = faces[0]
             q_score, ok, reason = self.assess_quality(face, img)
             if not ok:
-                skipped += 1
-                continue
+                return None
                 
             if self._spoofer:
                 is_real, spoof_score = self._spoofer.is_real(img, face.bbox)
                 if not is_real:
                     logger.warning(f"ENROLL REJECT - SPOOF DETECTED (score={spoof_score:.3f})")
-                    skipped += 1
-                    continue
+                    return None
 
             emb = self._recognizer.get_embedding(img, face.lm5)
             if emb is not None:
-                embeddings.append(emb)
-                scores.append(q_score)
+                return (emb, q_score)
+            return None
+
+        # Xử lý đa luồng toàn bộ 30+ frames tải lên để tăng tốc enroll
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+            results = list(executor.map(_process_enroll_frame, images_bgr))
+
+        for res in results:
+            if res is not None:
+                embeddings.append(res[0])
+                scores.append(res[1])
                 processed += 1
+            else:
+                skipped += 1
 
         if len(embeddings) < 3:
             return {

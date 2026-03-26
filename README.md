@@ -313,28 +313,28 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    Start((Bắt Đầu)) --> CheckSpoof{Tỉ lệ khung hình<br>Fake >= 40%?}
-    CheckSpoof -- Có --> Spoof[📵 BÁO ĐỘNG GỈA MẠO<br>Trạng thái: SPOOF]
-    CheckSpoof -- Không --> RawScore{Raw Score < 0.25?}
+    Start(("Bắt Đầu")) --> CheckSpoof{"Tỉ lệ khung hình<br>Fake >= 40%?"}
+    CheckSpoof -- Có --> Spoof["📵 BÁO ĐỘNG GỈA MẠO<br>Trạng thái: SPOOF"]
+    CheckSpoof -- Không --> RawScore{"Raw Score < 0.25?"}
     
-    RawScore -- Đúng --> Under25[❌ Trạng thái: UNKNOWN<br>Bị Cấm Hoàn Toàn]
-    RawScore -- Sai (>= 0.25) --> QualityCheck{Chất lượng Ảnh<br>Trung Bình (q_score)?}
+    RawScore -- Đúng --> Under25["❌ Trạng thái: UNKNOWN<br>Bị Cấm Hoàn Toàn"]
+    RawScore -- Sai (>= 0.25) --> QualityCheck{"Chất lượng Ảnh<br>Trung Bình (q_score)?"}
     
-    QualityCheck -- Cao (Rõ, Sáng) --> T38[Áp dụng Threshold: 0.38]
-    QualityCheck -- Thấp (Mờ, Tối) --> CheckBlink{Có chớp mắt<br>trong 5 khung hình?}
+    QualityCheck -- Cao (Rõ, Sáng) --> T38["Áp dụng Threshold: 0.38"]
+    QualityCheck -- Thấp (Mờ, Tối) --> CheckBlink{"Có chớp mắt<br>trong 5 khung hình?"}
     
-    CheckBlink -- Có --> T34[Áp dụng Threshold: 0.34<br>Yêu cầu Chớp Mắt Pass]
-    CheckBlink -- Không --> T38B[Ép áp dụng Threshold: 0.38<br>Vì không chứng minh liveness]
+    CheckBlink -- Có --> T34["Áp dụng Threshold: 0.34<br>Yêu cầu Chớp Mắt Pass"]
+    CheckBlink -- Không --> T38B["Ép áp dụng Threshold: 0.38<br>Vì không chứng minh liveness"]
     
-    T38 --> FinalEval{Score >= Threshold?}
+    T38 --> FinalEval{"Score >= Threshold?"}
     T34 --> FinalEval
     T38B --> FinalEval
     
-    FinalEval -- Đạt --> Cohort{Z-Score Kiểm Tra<br>Mode Collapse}
-    FinalEval -- Không Đạt --> FailMatch[❌ Trạng thái: UNKNOWN<br>Không Đạt Ngưỡng]
+    FinalEval -- Đạt --> Cohort{"Z-Score Kiểm Tra<br>Mode Collapse"}
+    FinalEval -- Không Đạt --> FailMatch["❌ Trạng thái: UNKNOWN<br>Không Đạt Ngưỡng"]
     
     Cohort -- Quá phổ biến --> FailMatch
-    Cohort -- Độc nhất minh bạch --> Accept[✅ Trạng thái: ACCEPTED<br>Lưu lịch sử thành công]
+    Cohort -- Độc nhất minh bạch --> Accept["✅ Trạng thái: ACCEPTED<br>Lưu lịch sử thành công"]
     
     classDef reject fill:#3f1a1a,stroke:#e63946,stroke-width:2px,color:#fff;
     classDef accept fill:#132a13,stroke:#2a9d8f,stroke-width:2px,color:#fff;
