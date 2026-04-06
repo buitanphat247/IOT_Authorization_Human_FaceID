@@ -234,6 +234,13 @@
             </div>
           </div>
 
+          <!-- Select Camera cho Enroll -->
+          <div class="mt-4">
+            <select id="enrollCameraSelect" class="w-full px-3 py-2 bg-dark-800 border border-white/5 rounded-lg text-xs text-gray-300 focus:outline-none focus:border-accent" onchange="switchEnrollCamera()">
+              <option value="">📷 Đang tải danh sách camera...</option>
+            </select>
+          </div>
+
           <!-- Captured thumbnails -->
           <div id="enrollThumbs" class="grid grid-cols-10 gap-1.5 mt-4"></div>
         </div>
@@ -849,12 +856,26 @@
       if (enrollStream) return;
       try {
         await initFaceLandmarker();  // Ensure FaceLandmarker is loaded
-        enrollStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' } });
+        const selectedCamera = document.getElementById('enrollCameraSelect')?.value;
+        const videoConstraints = selectedCamera
+          ? { deviceId: { exact: selectedCamera }, width: 640, height: 480 }
+          : { width: 640, height: 480, facingMode: 'user' };
+
+        enrollStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
         document.getElementById('enrollVideo').srcObject = enrollStream;
         document.getElementById('enrollVideo').addEventListener('loadeddata', () => enrollMeshLoop(), { once: true });
       } catch(e) {
         showToast('Không thể truy cập camera: ' + e.message, 'error');
       }
+    }
+
+    async function switchEnrollCamera() {
+      if (enrollStream) {
+        enrollStream.getTracks().forEach(t => t.stop());
+        enrollStream = null;
+        if (enrollMeshFrame) { cancelAnimationFrame(enrollMeshFrame); enrollMeshFrame = null; }
+      }
+      await startEnrollCamera();
     }
 
     async function startCapture() {
@@ -1141,47 +1162,52 @@
 
         if (data.score) {
           statsHtml = `
-            <div class="w-full mt-4 pt-4 border-t border-emerald-500/20">
-              <div class="grid grid-cols-2 gap-3">
-                <div class="bg-emerald-500/10 rounded-xl p-3 text-center shadow-inner border border-emerald-500/10">
+            <details class="w-full mt-4 group">
+              <summary class="cursor-pointer text-xs font-semibold text-emerald-500/70 hover:text-emerald-400 flex items-center gap-2 select-none border-t border-emerald-500/20 pt-4">
+                <span class="transform transition-transform group-open:rotate-90">▶</span>
+                <span>Thông số kỹ thuật thuật toán</span>
+                <span class="ml-auto text-[10px] bg-emerald-500/10 px-2 py-0.5 rounded text-emerald-400">Admin Mode</span>
+              </summary>
+              <div class="mt-3 grid grid-cols-2 gap-3 opacity-80">
+                <div class="bg-emerald-500/5 rounded-xl p-3 text-center border border-emerald-500/10">
                   <p class="text-[10px] text-emerald-500/80 uppercase tracking-widest font-semibold mb-1">Độ Trùng Khớp</p>
-                  <p class="text-2xl font-black text-emerald-400">${data.score.toFixed(4)}</p>
+                  <p class="text-xl font-black text-emerald-400">${data.score.toFixed(4)}</p>
                   <p class="text-[9px] mt-1 text-emerald-500/50">Cosine Similarity</p>
                 </div>
-                <div class="bg-emerald-500/10 rounded-xl p-3 text-center shadow-inner border border-emerald-500/10">
+                <div class="bg-emerald-500/5 rounded-xl p-3 text-center border border-emerald-500/10">
                   <p class="text-[10px] text-emerald-500/80 uppercase tracking-widest font-semibold mb-1">Ngưỡng Threshold</p>
-                  <p class="text-2xl font-black text-emerald-400">${data.dynamic_threshold || '--'}</p>
+                  <p class="text-xl font-black text-emerald-400">${data.dynamic_threshold || '--'}</p>
                   <p class="text-[9px] mt-1 text-emerald-500/50">Yêu cầu tối thiểu</p>
                 </div>
               </div>
-              <div class="mt-3 text-center text-[11px] text-emerald-400/80 bg-emerald-500/10 rounded-lg p-2.5 border border-emerald-500/20 font-medium flex items-center justify-center gap-1.5">
-                <span>🤖</span> ${data.dynamic_reason || 'Multi-frame voting'}
+              <div class="mt-2 text-center text-[10px] text-emerald-400/60 font-medium">
+                ${data.dynamic_reason || 'Multi-frame voting'}
               </div>
-            </div>`;
+            </details>`;
         }
 
         if (data.frame_details && data.frame_details.length > 0) {
-          frameDetailsHtml = `<div class="mt-4 pt-4 border-t border-emerald-500/20">
-            <p class="text-[10px] text-emerald-500/80 uppercase tracking-widest font-semibold mb-2 text-center">Chi Tiết ${data.frames_valid || 0}/${data.frames_total || 5} Khung Hình</p>
+          frameDetailsHtml = `<div class="mt-3 pt-3 border-t border-emerald-500/10">
+            <p class="text-[10px] text-emerald-500/60 uppercase tracking-widest font-semibold mb-2 text-center">Chi tiết ${data.frames_valid || 0}/${data.frames_total || 5} khung hình quét</p>
             <div class="space-y-1.5">`;
           data.frame_details.forEach(f => {
             if (f.status === 'ok') {
               const bestMatch = (f.name === data.name);
               frameDetailsHtml += `
-                <div class="flex items-center justify-between px-3 py-1.5 bg-emerald-500/10 rounded-lg text-xs border border-emerald-500/10">
-                  <span class="text-emerald-500/70 font-medium tracking-wide">FRAME ${f.frame + 1}</span>
+                <div class="flex items-center justify-between px-3 py-1.5 bg-emerald-500/5 rounded-lg text-xs border border-emerald-500/5">
+                  <span class="text-emerald-500/60 font-medium tracking-wide">FRAME ${f.frame + 1}</span>
                   <div class="flex items-center gap-3">
-                    <span class="font-mono text-emerald-400 font-semibold">${f.score.toFixed(4)}</span>
-                    <span class="${bestMatch ? 'text-emerald-500 font-semibold' : 'text-emerald-500/40'} truncate w-20 text-right">${f.name}</span>
+                    <span class="font-mono text-emerald-500/80 font-medium">${f.score.toFixed(4)}</span>
+                    <span class="${bestMatch ? 'text-emerald-500/80' : 'text-emerald-500/40'} truncate w-20 text-right">${f.name}</span>
                   </div>
                 </div>`;
             } else {
               let reason = f.status === 'quality_failed' ? `Quality: ${f.reason}` : 
                            f.status === 'spoof_failed' ? `Spoof Failed` : f.status;
               frameDetailsHtml += `
-                <div class="flex items-center justify-between px-3 py-1.5 bg-dark-500/30 rounded-lg text-xs border border-white/5 opacity-70 hover:opacity-100 transition-opacity">
-                  <span class="text-gray-500 tracking-wide font-medium">FRAME ${f.frame + 1}</span>
-                  <span class="text-amber-500/80 font-medium truncate max-w-[120px] text-right" title="${reason}">${reason}</span>
+                <div class="flex items-center justify-between px-3 py-1.5 bg-dark-500/20 rounded-lg text-xs">
+                  <span class="text-gray-600 tracking-wide font-medium">FRAME ${f.frame + 1}</span>
+                  <span class="text-amber-500/60 font-medium truncate max-w-[120px] text-right" title="${reason}">${reason}</span>
                 </div>`;
             }
           });
@@ -1189,20 +1215,18 @@
         }
 
         resultsDiv.innerHTML = `
-          <div class="flex flex-col gap-2 p-5 bg-emerald-500/5 border border-emerald-500/30 rounded-2xl animate-slide-up">
+          <div class="flex flex-col gap-2 p-5 bg-emerald-500/10 border border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.15)] rounded-2xl animate-slide-up">
             <div class="flex items-center gap-4">
-              <div class="w-16 h-16 rounded-full bg-emerald-500/20 border-emerald-500 border-2 flex items-center justify-center text-2xl flex-shrink-0 animate-pulse">
-                ✅
+              <div class="w-16 h-16 rounded-full bg-emerald-500 border-emerald-400 border-2 flex items-center justify-center text-3xl shadow-lg flex-shrink-0 animate-bounce">
+                🎉
               </div>
               <div class="flex-1 min-w-0">
-                <p class="text-2xl font-extrabold text-emerald-400 capitalize tracking-wide">${data.name}</p>
-                <p class="text-xs font-semibold mt-1 text-emerald-500">
-                  ✓ ACCEPTED — Đã nhận diện thành công
-                </p>
+                <p class="text-[11px] text-emerald-500 font-bold tracking-wider uppercase mb-0.5">Xác thực thành công</p>
+                <p class="text-2xl font-extrabold text-white capitalize tracking-wide text-shadow-sm">${data.name}</p>
               </div>
             </div>
             ${statsHtml}
-            ${frameDetailsHtml}
+            ${frameDetailsHtml ? '<details class="w-full group mt-1"><summary class="cursor-pointer text-[10px] text-emerald-500/60 hover:text-emerald-400 text-center mb-1 outline-none">Xem log khung hình</summary>' + frameDetailsHtml + '</details>' : ''}
           </div>`;
       } else if (data.status === 'spoof') {
         meshLabelName = 'SPOOF';
@@ -1303,20 +1327,25 @@
         }
 
         resultsDiv.innerHTML = `
-          <div class="flex flex-col p-5 bg-red-500/5 border border-red-500/30 rounded-2xl animate-slide-up">
+          <div class="flex flex-col p-5 bg-red-500/10 border border-red-500/40 shadow-[0_0_20px_rgba(239,68,68,0.1)] rounded-2xl animate-slide-up">
             <div class="flex items-center gap-4">
-              <div class="w-16 h-16 rounded-full bg-red-500/20 border-red-500 border-2 flex items-center justify-center text-2xl flex-shrink-0">
-                ❌
+              <div class="w-16 h-16 rounded-full bg-red-500 border-red-400 border-2 flex items-center justify-center text-3xl shadow-lg flex-shrink-0">
+                🔒
               </div>
               <div class="flex-1 min-w-0">
-                <p class="text-xl font-bold text-red-500">Thuộc tính chưa xác minh</p>
-                <p class="text-xs font-semibold mt-1 text-red-400">
-                  ✗ REJECTED — Nhận diện không thành công
-                </p>
+                <p class="text-[11px] text-red-400 font-bold tracking-wider uppercase mb-0.5">Truy cập bị từ chối</p>
+                <p class="text-xl font-bold text-white">Chưa xác minh</p>
               </div>
             </div>
-            ${statsHtml}
-            ${frameDetailsHtml}
+            <details class="w-full group mt-4">
+              <summary class="cursor-pointer text-xs font-semibold text-red-500/70 hover:text-red-400 flex items-center gap-2 select-none border-t border-red-500/20 pt-4">
+                <span class="transform transition-transform group-open:rotate-90">▶</span>
+                <span>Thông số kỹ thuật thuật toán</span>
+                <span class="ml-auto text-[10px] bg-red-500/10 px-2 py-0.5 rounded text-red-400">Admin Mode</span>
+              </summary>
+              ${statsHtml}
+              ${frameDetailsHtml}
+            </details>
           </div>`;
       } else if (data.status === 'no_face') {
         meshLabelName = '';
@@ -1455,15 +1484,18 @@
     // ==================== INIT ====================
     async function populateCameraSelect() {
       const select = document.getElementById('cameraSelect');
-      if (!select) return;
+      const selectEnroll = document.getElementById('enrollCameraSelect');
       try {
         await navigator.mediaDevices.getUserMedia({ video: true }); // Request permission to see labels
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter(dev => dev.kind === 'videoinput');
         
-        select.innerHTML = '';
+        if (select) select.innerHTML = '';
+        if (selectEnroll) selectEnroll.innerHTML = '';
+
         if (videoDevices.length === 0) {
-          select.innerHTML = '<option value="">Không tìm thấy camera</option>';
+          if (select) select.innerHTML = '<option value="">Không tìm thấy camera</option>';
+          if (selectEnroll) selectEnroll.innerHTML = '<option value="">Không tìm thấy camera</option>';
           return;
         }
         
@@ -1471,11 +1503,13 @@
           const option = document.createElement('option');
           option.value = dev.deviceId;
           option.text = dev.label || `Camera ${index + 1}`;
-          select.appendChild(option);
+          if (select) select.appendChild(option);
+          if (selectEnroll) selectEnroll.appendChild(option.cloneNode(true));
         });
       } catch (e) {
         console.error("Camera access denied or not available", e);
-        select.innerHTML = '<option value="">📷 Click Bật Camera trước (cấp quyền) để hiện danh sách</option>';
+        if (select) select.innerHTML = '<option value="">📷 Click Bật Camera trước (cấp quyền) để hiện danh sách</option>';
+        if (selectEnroll) selectEnroll.innerHTML = '<option value="">📷 Vui lòng cấp quyền Camera</option>';
       }
     }
 

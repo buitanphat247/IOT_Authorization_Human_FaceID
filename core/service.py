@@ -420,25 +420,32 @@ class FaceService:
         if avg_q_score < 0.65:
             if has_blink:
                 applied_threshold = THRESHOLD_ACCEPT_LOW_QUALITY
-                dynamic_reason = "Low Quality + Blink OK (Threshold=0.63)"
+                dynamic_reason = f"Low Quality + Blink OK (Threshold={THRESHOLD_ACCEPT_LOW_QUALITY})"
             else:
                 applied_threshold = THRESHOLD_ACCEPT_HIGH_QUALITY
-                dynamic_reason = "Low Quality + No Blink (Threshold=0.67) -> Needs Blink"
+                dynamic_reason = f"Low Quality + No Blink (Threshold={THRESHOLD_ACCEPT_HIGH_QUALITY}) -> Needs Blink"
         else:
-            dynamic_reason = "High Quality (Threshold=0.67)"
+            dynamic_reason = f"High Quality (Threshold={THRESHOLD_ACCEPT_HIGH_QUALITY})"
 
         # Bắt buộc rớt nếu kết quả là Unknown
         final_accepted = (final_score >= applied_threshold) and (final_name != "Unknown")
 
-        # --- KIỂM DUYỆT LIVENESS TỔNG THỂ ---
-        # Ngăn chặn trường hợp 5 khung hình đưa điện thoại vào, 
-        # model lọt lưới 1 khung hình qua mặt được Anti-Spoof nhưng 4 khung hình còn lại bị bắt lỗi giả mạo.
-        # Nếu chỉ dựa vào "1 khung lọt lưới" thì face_match vẫn đúng -> hacker qua cổng.
-        # SỬA: Nếu tỷ lệ khung hình bị đánh dấu giả mạo >= 40% -> ĐÁNH TRƯỢT TOÀN BỘ PHIÊN!
+        # HARD GATE: Liveness / Spoof
         spoof_count = sum(1 for fr in frame_results if fr.get("status") == "spoof_failed")
-        if len(images_bgr) > 0 and (spoof_count / len(images_bgr)) >= 0.4:
-            logger.warning(f"MULTI-FRAME LIVENESS BLOCKED: {spoof_count}/{len(images_bgr)} frames fake. Rejecting {best_name}.")
+        total_processed = len([fr for fr in frame_results if fr.get("status") != "no_face"])
+        if total_processed > 0 and (spoof_count / total_processed) >= 0.5:
+            logger.warning(f"MULTI-FRAME LIVENESS BLOCKED: {spoof_count}/{total_processed} frames fake. Rejecting {best_name}.")
             final_accepted = False
+            dynamic_reason = "Spoof detected (Hard Gate)"
+
+        # BLINK CHECK: Chỉ cảnh báo, KHÔNG chặn cứng
+        # Lý do: Multi-frame snapshot chụp 5 frame trong ~120ms → blink detection
+        # cần tối thiểu ~300ms (open→close→open) → không thể phát hiện được.
+        # Hard Gate blink chỉ hợp lý cho video stream liên tục (SocketIO realtime).
+        if avg_q_score < 0.65 and not has_blink:
+            logger.info(f"MULTI-FRAME BLINK NOTE: Quality low and no blink for {best_name}. (Warning only, not blocking)")
+            if dynamic_reason not in ("Spoof detected (Hard Gate)",):
+                dynamic_reason = f"Low Quality (Threshold={THRESHOLD_ACCEPT_HIGH_QUALITY})"
 
         if final_accepted:
             self._db.log_attendance(final_name, final_score)
