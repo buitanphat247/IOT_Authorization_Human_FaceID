@@ -329,6 +329,8 @@ sequenceDiagram
 
     API-->>Browser: JSON name score accepted frame_details
 
+```
+
 ### 4. Quyết Định Kết Quả Nhận Diện (Decision Logic Flowchart)
 
 Luồng nghiệp vụ xử lý ngưỡng động (Dynamic Threshold) và bảo mật chống giả mạo quyết định xem người dùng sẽ được cấp quyền (Accepted) hay bị từ chối (Unknown/Spoof).
