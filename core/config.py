@@ -68,8 +68,9 @@ TRACKER_MIN_HITS = 3                # Số frame tối thiểu để confirm tra
 FL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
 FL_PATH = os.path.join(MODELS_DIR, "face_landmarker.task")
 
-# === ANTI-SPOOFING (MiniFASNet v2) ===
-ANTI_SPOOF_PATH = os.path.join(MODELS_DIR, "anti_spoofing_v2_q.onnx")
+# === ANTI-SPOOFING (MiniFASNet) ===
+# Chuyển về sử dụng ONNX để khắc phục lỗi inference kiến trúc PyTorch làm model luôn trả class 2.
+ANTI_SPOOF_PATH = os.path.join(MODELS_DIR, "anti_spoofing.onnx")
 ANTI_SPOOF_THRESHOLD = 0.5   # Nâng ngưỡng nếu cần (0.5 là chuẩn, <0.5 là Fake)
 
 # === CAMERA ===

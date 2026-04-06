@@ -64,3 +64,8 @@ ArcFace_Model_Export/
 # Extra libs and notebooks checkpoints
 finetune/extra_libs/
 .ipynb_checkpoints/
+
+# Scratch & Inspection scripts
+inspect_*.py
+detailed_*.py
+model_*.txt
